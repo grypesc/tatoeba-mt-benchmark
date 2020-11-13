@@ -1,2 +1,2 @@
-# ratmt
-Recurrent approaches to machine translation
+# atmt
+Approaches to machine translation
