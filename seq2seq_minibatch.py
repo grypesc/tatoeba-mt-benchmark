@@ -1,15 +1,17 @@
-import torch
 import io
 import random
+import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import math
+import time
 
+from collections import Counter
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torchtext.data.utils import get_tokenizer
-from collections import Counter
 from torchtext.vocab import Vocab
 from typing import Tuple
 
@@ -52,22 +54,22 @@ test_data = data_process(test_filepaths)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-BATCH_SIZE = 64
 PAD_IDX = en_vocab['<pad>']
 BOS_IDX = en_vocab['<bos>']
 EOS_IDX = en_vocab['<eos>']
 
 
 def generate_batch(data_batch):
-    de_batch, en_batch = [], []
-    for (de_item, en_item) in data_batch:
-        de_batch.append(torch.cat([torch.tensor([BOS_IDX]), de_item, torch.tensor([EOS_IDX])], dim=0))
+    en_batch, spa_batch, = [], []
+    for (en_item, spa__item) in data_batch:
         en_batch.append(torch.cat([torch.tensor([BOS_IDX]), en_item, torch.tensor([EOS_IDX])], dim=0))
-    de_batch = pad_sequence(de_batch, padding_value=PAD_IDX)
+        spa_batch.append(torch.cat([torch.tensor([BOS_IDX]), spa__item, torch.tensor([EOS_IDX])], dim=0))
     en_batch = pad_sequence(en_batch, padding_value=PAD_IDX)
-    return de_batch, en_batch
+    spa_batch = pad_sequence(spa_batch, padding_value=PAD_IDX)
+    return en_batch, spa_batch
 
 
+BATCH_SIZE = 64
 train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
 valid_iter = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
 test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
@@ -200,7 +202,6 @@ class Seq2Seq(nn.Module):
         trg_vocab_size = self.decoder.output_dim
 
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
-
         encoder_outputs, hidden = self.encoder(src)
 
         # first input to the decoder is the <sos> token
@@ -235,11 +236,8 @@ ENC_DROPOUT = 0.5
 DEC_DROPOUT = 0.5
 
 enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
-
 attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
-
 dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
-
 model = Seq2Seq(enc, dec, device).to(device)
 
 
@@ -266,9 +264,6 @@ PAD_IDX = spa_vocab.stoi['<pad>']
 
 criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX)
 
-import math
-import time
-
 
 def train(model: nn.Module,
           iterator: torch.utils.data.DataLoader,
@@ -276,27 +271,18 @@ def train(model: nn.Module,
           criterion: nn.Module,
           clip: float):
     model.train()
-
     epoch_loss = 0
 
     for _, (src, trg) in enumerate(iterator):
         src, trg = src.to(device), trg.to(device)
-
         optimizer.zero_grad()
-
         output = model(src, trg)
-
         output = output[1:].view(-1, output.shape[-1])
         trg = trg[1:].view(-1)
-
         loss = criterion(output, trg)
-
         loss.backward()
-
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-
         optimizer.step()
-
         epoch_loss += loss.item()
 
     return epoch_loss / len(iterator)
@@ -312,16 +298,11 @@ def evaluate(model: nn.Module,
     with torch.no_grad():
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
-
             output = model(src, trg, 0)  # turn off teacher forcing
-
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
-
             loss = criterion(output, trg)
-
             epoch_loss += loss.item()
-
     return epoch_loss / len(iterator)
 
 
@@ -339,7 +320,6 @@ best_valid_loss = float('inf')
 
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-
     train_loss = train(model, train_iter, optimizer, criterion, CLIP)
     valid_loss = evaluate(model, valid_iter, criterion)
 
