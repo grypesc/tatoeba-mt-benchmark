@@ -8,6 +8,8 @@ import math
 import time
 
 from collections import Counter
+
+from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -39,10 +41,10 @@ def data_process(filepaths):
     raw_en_iter = iter(io.open(filepaths[0], encoding="utf8"))
     raw_spa_iter = iter(io.open(filepaths[1], encoding="utf8"))
     data = []
-    for (raw_en, raw_spa) in zip(raw_en_iter, raw_spa_iter):
-        en_tensor_ = torch.tensor([en_vocab[token] for token in en_tokenizer(raw_en)],
+    for (raw_en, raw_spa) in zip(raw_en_iter, raw_spa_iter):  # Ignore /n at the line end
+        en_tensor_ = torch.tensor([en_vocab[token] for token in en_tokenizer(raw_en)[:-1]],
                                   dtype=torch.long)
-        spa_tensor_ = torch.tensor([spa_vocab[token] for token in spa_tokenizer(raw_spa)],
+        spa_tensor_ = torch.tensor([spa_vocab[token] for token in spa_tokenizer(raw_spa)[:-1]],
                                    dtype=torch.long)
         data.append((en_tensor_, spa_tensor_))
     return data
@@ -251,7 +253,7 @@ def init_weights(m: nn.Module):
 
 model.apply(init_weights)
 
-optimizer = optim.Adam(model.parameters())
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 
 def count_parameters(model: nn.Module):
@@ -290,20 +292,40 @@ def train(model: nn.Module,
 
 def evaluate(model: nn.Module,
              iterator: torch.utils.data.DataLoader,
-             criterion: nn.Module):
+             criterion: nn.Module,
+             calc_bleu=False):
     model.eval()
 
     epoch_loss = 0
-
+    bleu_scores = []
     with torch.no_grad():
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
+
+            if calc_bleu:
+                _, indices = torch.max(output, 2)
+                for i in range(0, output.shape[1]):
+                    out_sentence = [spa_vocab.itos[x] for x in indices[1:, i]]
+                    trg_sentence = [spa_vocab.itos[x] for x in trg[1:, i]]
+                    try:
+                        eos_index = out_sentence.index("<eos>")
+                    except ValueError:
+                        eos_index = len(trg_sentence)  # If output sentence doesn't have eos then make it as long as target sentence to satisfy bleu score function
+                    out_sentence = out_sentence[:eos_index]
+                    eos_index = trg_sentence.index("<eos>")
+                    trg_sentence = trg_sentence[:eos_index]
+                    bleu_scores.append(sentence_bleu([trg_sentence], out_sentence, weights=(0.5, 0.5)))
+
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
             loss = criterion(output, trg)
             epoch_loss += loss.item()
-    return epoch_loss / len(iterator)
+
+    bleu = None
+    if calc_bleu:
+        bleu = sum(bleu_scores)/len(bleu_scores)
+    return epoch_loss / len(iterator), bleu
 
 
 def epoch_time(start_time: int, end_time: int):
@@ -313,15 +335,13 @@ def epoch_time(start_time: int, end_time: int):
     return elapsed_mins, elapsed_secs
 
 
-N_EPOCHS = 3
+N_EPOCHS = 20
 CLIP = 1
-
-best_valid_loss = float('inf')
 
 for epoch in range(N_EPOCHS):
     start_time = time.time()
     train_loss = train(model, train_iter, optimizer, criterion, CLIP)
-    valid_loss = evaluate(model, valid_iter, criterion)
+    valid_loss, valid_bleu = evaluate(model, valid_iter, criterion, calc_bleu=True)
 
     end_time = time.time()
 
@@ -329,8 +349,8 @@ for epoch in range(N_EPOCHS):
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-    print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
+    print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(valid_bleu, 3)}')
 
-test_loss = evaluate(model, test_iter, criterion)
+test_loss, test_bleu = evaluate(model, test_iter, criterion, calc_bleu=True)
 
-print(f'| Test Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} |')
+print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(test_bleu, 3)}')
