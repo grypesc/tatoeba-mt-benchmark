@@ -1,7 +1,6 @@
 import io
 import random
 
-import spacy
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -238,19 +237,12 @@ class Seq2Seq(nn.Module):
 
 INPUT_DIM = len(en_vocab)
 OUTPUT_DIM = len(spa_vocab)
-# ENC_EMB_DIM = 256
-# DEC_EMB_DIM = 256
-# ENC_HID_DIM = 512
-# DEC_HID_DIM = 512
-# ATTN_DIM = 64
-# ENC_DROPOUT = 0.5
-# DEC_DROPOUT = 0.5
 
 ENC_EMB_DIM = en_vocab.vectors.size()[1]
-DEC_EMB_DIM = 32
-ENC_HID_DIM = 64
-DEC_HID_DIM = 64
-ATTN_DIM = 8
+DEC_EMB_DIM = 64
+ENC_HID_DIM = 128
+DEC_HID_DIM = 128
+ATTN_DIM = 32
 ENC_DROPOUT = 0.5
 DEC_DROPOUT = 0.5
 
@@ -258,17 +250,6 @@ enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
 attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
 dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
 model = Seq2Seq(enc, dec, device).to(device)
-
-
-def init_weights(m: nn.Module):
-    for name, param in m.named_parameters():
-        if 'weight' in name:
-            nn.init.normal_(param.data, mean=0, std=0.01)
-        else:
-            nn.init.constant_(param.data, 0)
-
-
-model.apply(init_weights)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
