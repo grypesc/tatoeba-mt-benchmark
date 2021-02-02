@@ -88,9 +88,9 @@ def generate_batch(data_batch):
 
 
 BATCH_SIZE = 64
-train_iter = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
-valid_iter = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
-test_iter = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
+train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
+valid_loader = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
+test_loader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
 
 
 class Encoder(nn.Module):
@@ -109,7 +109,7 @@ class Encoder(nn.Module):
         self.dropout = dropout
 
         self.embedding = nn.Embedding(input_dim, emb_dim).from_pretrained(en_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(emb_dim, enc_hid_dim, bidirectional=True)
+        self.rnn = nn.GRU(emb_dim, enc_hid_dim, num_layers=1, bidirectional=True)
         self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -260,9 +260,7 @@ def count_parameters(model: nn.Module):
 
 print(f'The model has {count_parameters(model):,} trainable parameters')
 
-PAD_IDX = spa_vocab.stoi['<pad>']
-
-criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX)
+criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 
 
 def train(model: nn.Module,
@@ -338,17 +336,16 @@ CLIP = 1
 
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss = train(model, train_iter, optimizer, criterion, CLIP)
-    valid_loss, valid_bleu = evaluate(model, valid_iter, criterion, calc_bleu=True)
+    train_loss = train(model, train_loader, optimizer, criterion, CLIP)
+    valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, calc_bleu=True)
 
     end_time = time.time()
-
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
     print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(valid_bleu, 3)}')
 
-test_loss, test_bleu = evaluate(model, test_iter, criterion, calc_bleu=True)
+test_loss, test_bleu = evaluate(model, test_loader, criterion, calc_bleu=True)
 
 print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(test_bleu, 3)}')
