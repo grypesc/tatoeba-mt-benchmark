@@ -315,7 +315,7 @@ def evaluate(model: nn.Module,
                     out_sentence = out_sentence[:eos_index]
                     eos_index = trg_sentence.index("<eos>")
                     trg_sentence = trg_sentence[:eos_index]
-                    bleu_scores.append(sentence_bleu([trg_sentence], out_sentence, weights=(0.5, 0.5)))
+                    bleu_scores.append(sentence_bleu([trg_sentence], out_sentence, weights=(0.25, 0.25, 0.25, 0.25)))
 
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
