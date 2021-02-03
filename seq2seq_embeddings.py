@@ -1,96 +1,16 @@
-import io
+import math
+import time
 import random
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import math
-import time
-
-from collections import Counter
 
 from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import Vocab
 from typing import Tuple
-
-train_filepaths = ["data/train_eng.txt", "data/train_spa.txt"]
-val_filepaths = ["data/validation_eng.txt", "data/validation_spa.txt"]
-test_filepaths = ["data/test_eng.txt", "data/test_spa.txt"]
-
-en_tokenizer = get_tokenizer('spacy', language='en_core_web_md')
-spa_tokenizer = get_tokenizer('spacy', language='es_core_news_md')
-
-
-def build_input_vocab(filepath, tokenizer):
-    counter = Counter()
-    with io.open(filepath, encoding="utf8") as f:
-        for string_ in f:
-            counter.update(tokenizer(string_))
-    vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors='glove.6B.300d')
-    zero_vec = torch.zeros(vocab.vectors.size()[0])
-    zero_vec = torch.unsqueeze(zero_vec, dim=1)
-    vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-    vocab.vectors[vocab["<pad>"]][0] = 1
-    vocab.vectors[vocab["<bos>"]][1] = 1
-    vocab.vectors[vocab["<eos>"]][2] = 1
-    return vocab
-
-
-def build_output_vocab(filepath, tokenizer):
-    counter = Counter()
-    with io.open(filepath, encoding="utf8") as f:
-        for string_ in f:
-            counter.update(tokenizer(string_))
-    return Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'])
-
-
-en_vocab = build_input_vocab(train_filepaths[0], en_tokenizer)
-spa_vocab = build_output_vocab(train_filepaths[1], spa_tokenizer)
-
-
-def data_process(filepaths):
-    raw_en_iter = iter(io.open(filepaths[0], encoding="utf8"))
-    raw_spa_iter = iter(io.open(filepaths[1], encoding="utf8"))
-    data = []
-    for (raw_en, raw_spa) in zip(raw_en_iter, raw_spa_iter):  # Ignore /n at the line end
-        en_tensor_ = torch.tensor([en_vocab[token] for token in en_tokenizer(raw_en)[:-1]],
-                                  dtype=torch.long)
-        spa_tensor_ = torch.tensor([spa_vocab[token] for token in spa_tokenizer(raw_spa)[:-1]],
-                                   dtype=torch.long)
-        data.append((en_tensor_, spa_tensor_))
-    return data
-
-
-train_data = data_process(train_filepaths)
-val_data = data_process(val_filepaths)
-test_data = data_process(test_filepaths)
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-PAD_IDX = en_vocab['<pad>']
-BOS_IDX = en_vocab['<bos>']
-EOS_IDX = en_vocab['<eos>']
-
-
-def generate_batch(data_batch):
-    en_batch, spa_batch, = [], []
-    for (en_item, spa__item) in data_batch:
-        en_batch.append(torch.cat([torch.tensor([BOS_IDX]), en_item, torch.tensor([EOS_IDX])], dim=0))
-        spa_batch.append(torch.cat([torch.tensor([BOS_IDX]), spa__item, torch.tensor([EOS_IDX])], dim=0))
-    en_batch = pad_sequence(en_batch, padding_value=PAD_IDX)
-    spa_batch = pad_sequence(spa_batch, padding_value=PAD_IDX)
-    return en_batch, spa_batch
-
-
-BATCH_SIZE = 64
-train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
-valid_loader = DataLoader(val_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
-test_loader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=generate_batch)
+from utils.data_pipeline import DataPipeline
 
 
 class Encoder(nn.Module):
@@ -151,7 +71,7 @@ class Decoder(nn.Module):
                  emb_dim: int,
                  enc_hid_dim: int,
                  dec_hid_dim: int,
-                 dropout: int,
+                 dropout: float,
                  attention: nn.Module):
         super().__init__()
 
@@ -222,7 +142,7 @@ class Seq2Seq(nn.Module):
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
         encoder_outputs, hidden = self.encoder(src)
 
-        # first input to the decoder is the <sos> token
+        # first input to the decoder is the <bos> token
         output = trg[0, :]
 
         for t in range(1, max_len):
@@ -234,6 +154,13 @@ class Seq2Seq(nn.Module):
 
         return outputs
 
+
+data = DataPipeline(batch_size=64)
+en_vocab = data.en_vocab
+spa_vocab = data.spa_vocab
+train_loader = data.train_loader
+valid_loader = data.valid_loader
+test_loader = data.test_loader
 
 INPUT_DIM = len(en_vocab)
 OUTPUT_DIM = len(spa_vocab)
@@ -249,17 +176,10 @@ DEC_DROPOUT = 0.5
 enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
 attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
 dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Seq2Seq(enc, dec, device).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
-
-def count_parameters(model: nn.Module):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-print(f'The model has {count_parameters(model):,} trainable parameters')
-
 criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 
 
@@ -333,6 +253,8 @@ def epoch_time(start_time: int, end_time: int):
 
 N_EPOCHS = 20
 CLIP = 1
+
+print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
 for epoch in range(N_EPOCHS):
     start_time = time.time()
