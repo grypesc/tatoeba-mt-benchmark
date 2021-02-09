@@ -1,10 +1,12 @@
 import random
+import time
 import torch
 
 import torch.nn as nn
 import torch.optim as optim
 
 from utils.data_pipeline_drql import DataPipeline
+from utils.tools import epoch_time
 
 
 class DRQL(nn.Module):
@@ -49,10 +51,18 @@ epsilon = 0.5
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = DRQL(INPUT_DIM, SRC_EMB_DIM, TRG_EMB_DIM, RNN_HID_DIM, OUTPUT_DIM).to(device)
 
-optimizer = optim.SGD(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95, last_epoch=-1)
+
 word_loss = nn.CrossEntropyLoss()
 policy_loss = nn.MSELoss()
 sentence_loss = nn.CrossEntropyLoss()
+
+SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
+EN_NULL = torch.tensor([en_vocab.stoi['<null>']]).to(device)
+SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
+EN_EOS = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
+SPA_UNK = torch.tensor([spa_vocab.stoi['<unk>']]).to(device)
 
 
 def train(epsilon):
@@ -66,7 +76,7 @@ def train(epsilon):
         i, j = 0, 0
         is_terminal_state = False
         input_word = src[0, :]
-        word_output = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
+        word_output = SPA_NULL
         rnn_state = torch.zeros((1, 1, RNN_HID_DIM)).to(device)
         trg_word = trg[0, :]
         output_sentence = []
@@ -77,12 +87,13 @@ def train(epsilon):
             output, rnn_state = model(input_word, word_output, rnn_state)
             policy_output = output[0, 0, -3:]
 
-            _, action_index = torch.max(policy_output, 0)  # Epsilon greedy strategy
-            if random.random() < max(0.05, epsilon):
+            if random.random() < max(0.05, epsilon):  # Epsilon greedy strategy
                 action_index = random.randint(0, 2)
+            else:
+                _, action_index = torch.max(policy_output, 0)
 
             if action_index == 0:  # WAIT
-                word_output = torch.tensor([spa_vocab.stoi['<null>']]).to(device)  # not sure
+                word_output = SPA_NULL  # not sure
                 reward = -0.5
                 i += 1
 
@@ -106,20 +117,21 @@ def train(epsilon):
                 i += 1
                 j += 1
                 output_sentence.append(output[0, 0, :-3])
+
             old_trg_word = trg_word
             if action_index == 1:  # SKIP
-                input_word = torch.tensor([en_vocab.stoi['<null>']]).to(device)
+                input_word = EN_NULL
             elif i < src_seq_len:
                 input_word = src[i, :]
             else:
-                input_word = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
+                input_word = EN_EOS
                 reward = -2.0
             if action_index == 0:  # WAIT
                 pass
             elif j < trg_seq_len:
                 trg_word = trg[j, :]
             else:
-                trg_word = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
+                trg_word = SPA_EOS
                 reward = -2.0
 
             with torch.no_grad():  # Forward pass to get the next action
@@ -127,10 +139,10 @@ def train(epsilon):
                 _policy_output = _output[0, 0, -3:]
                 _, best_action_index = torch.max(_policy_output, 0)
 
-            if word_output[0] == spa_vocab.stoi["<eos>"]:  # Terminal state on eos
+            if word_output[0] == SPA_EOS:  # Terminal state on eos
                 _policy_loss = policy_loss(policy_output[action_index], torch.tensor(reward).to(device))
                 is_terminal_state = True
-            elif i > 2*src_seq_len or j > 2*trg_seq_len:  # Terminal state when agent is too slow
+            elif i >= src_seq_len or j >= trg_seq_len:  # Terminal state when agent is skipping or waiting too much TODO: when to terminate episode???
                 is_terminal_state = True
                 reward = -10.0
                 _policy_loss = policy_loss(policy_output[action_index], torch.tensor(reward).to(device))
@@ -156,20 +168,31 @@ def train(epsilon):
         trg_t = torch.squeeze(trg)
         out_len_diff = predicted_sentence.size()[0] - trg_t.size()[0]
         if out_len_diff > 0:
-            trg_t = torch.cat((trg_t, *out_len_diff * [torch.tensor([spa_vocab.stoi['<unk>']]).to(device)]))
+            trg_t = torch.cat((trg_t, *out_len_diff * [SPA_UNK]))
         elif out_len_diff < 0:
             predicted_sentence = torch.cat(
                 (predicted_sentence, *(-1) * out_len_diff * [torch.zeros(1, len(spa_vocab)).to(device)]))
         epoch_sentence_loss += sentence_loss(predicted_sentence, trg_t).item()
-        epsilon -= 0.0001
         # print(iteration, action_index)
     return epoch_sentence_loss / len(train_loader), epsilon
 
 
-N_EPOCHS = 100
+N_EPOCHS = 1000
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
-
+# profile = cProfile.Profile()
+# profile.enable()
 for epoch in range(N_EPOCHS):
+    start_time = time.time()
     train_loss, epsilon = train(epsilon)
-    print(train_loss)
+    end_time = time.time()
+    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+
+    lr_scheduler.step()
+    epsilon -= 0.01
+
+    print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+    print(train_loss, epsilon)
+
+# profile.disable()
+# profile.print_stats(sort='time')
