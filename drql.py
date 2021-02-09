@@ -123,16 +123,9 @@ def train(epsilon):
                 input_word = EN_NULL
             elif i < src_seq_len:
                 input_word = src[i, :]
-            else:
-                input_word = EN_EOS
-                reward = -2.0
-            if action_index == 0:  # WAIT
-                pass
-            elif j < trg_seq_len:
+
+            if j < trg_seq_len and action_index != 0:
                 trg_word = trg[j, :]
-            else:
-                trg_word = SPA_EOS
-                reward = -2.0
 
             with torch.no_grad():  # Forward pass to get the next action
                 _output, _ = model(input_word, word_output, rnn_state)
