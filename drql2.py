@@ -124,7 +124,7 @@ def train(epsilon):
                     word_outputs_is_eos[-1, :] = REWARD_PADDING
                     word_outputs_eos = word_outputs_is_eos.max(0)[1]
                     reward = (-1) * torch.abs(trg_eos - word_outputs_eos).float()
-                    target_policy[word_outputs_eos, :] = reward
+                    torch.scatter(target_policy, 0, word_outputs_eos.unsqueeze(0), reward.unsqueeze(0))
 
                 else:
                     _input = torch.gather(src, 0, i)
@@ -157,10 +157,10 @@ for epoch in range(N_EPOCHS):
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     lr_scheduler.step()
-    epsilon -= 0.005
+    epsilon = max(0.05, epsilon - 0.005)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-    print(train_loss, epsilon)
+    print('Train loss: {}, epsilon: {}'.format(round(train_loss, 10), round(epsilon, 2)))
 
 # profile.disable()
 # profile.print_stats(sort='time')
