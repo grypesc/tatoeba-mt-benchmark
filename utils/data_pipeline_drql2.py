@@ -34,14 +34,13 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>', '<sos>'], vectors=FastText(language='en', max_vectors=100_000))
+        vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='en', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
-        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
+        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
         vocab.vectors[vocab['<null>']][0] = 1
         vocab.vectors[vocab['<eos>']][1] = 1
         vocab.vectors[vocab['<pad>']][2] = 1
-        vocab.vectors[vocab['<sos>']][3] = 1
         return vocab
 
     def build_output_vocab(self, filepath, tokenizer):
@@ -49,13 +48,14 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='es', max_vectors=100_000))
+            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>', '<sos>'], vectors=FastText(language='es', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
-        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
+        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
         vocab.vectors[vocab['<null>']][0] = 1
         vocab.vectors[vocab['<eos>']][1] = 1
         vocab.vectors[vocab['<pad>']][2] = 1
+        vocab.vectors[vocab['<sos>']][3] = 1
         return vocab
 
     def tensor_from_files(self, filepaths):

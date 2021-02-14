@@ -53,7 +53,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = DRQL(INPUT_DIM, SRC_EMB_DIM, TRG_EMB_DIM, RNN_HID_DIM, OUTPUT_DIM).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.98, last_epoch=-1)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.99, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 policy_loss = nn.MSELoss()
@@ -77,12 +77,14 @@ def train(epsilon):
         batch_size = src.size()[1]  # current
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
-        word_output = torch.tensor(([batch_size*[en_vocab.stoi["<sos>"]]]), device=device)
+        word_output = torch.tensor(([batch_size*[spa_vocab.stoi["<sos>"]]]), device=device)
         rnn_state = torch.zeros((1, batch_size, RNN_HID_DIM), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, len(spa_vocab)),  device=device)
         policy_outputs = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
         target_policy = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
+
+        skipping_agents = torch.full((batch_size, ), False, device=device)
 
         REWARD_PADDING = torch.full((1, batch_size), fill_value=True, device=device)
         i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)
@@ -92,9 +94,9 @@ def train(epsilon):
 
         while not is_terminal:
             input = torch.gather(src, 0, i)
+            input[:, skipping_agents] = EN_NULL
             output, rnn_state = model(input, word_output, rnn_state)
-            _, word_output = torch.max(output[0, :, :-3], dim=1)
-            word_output = torch.unsqueeze(word_output, 0)
+            _, word_output = torch.max(output[:, :, :-3], dim=2)
             policy_output = output[:, :, -3:]
 
             if random.random() < epsilon:
@@ -124,13 +126,17 @@ def train(epsilon):
                     word_outputs_is_eos[-1, :] = REWARD_PADDING
                     word_outputs_eos = word_outputs_is_eos.max(0)[1]
                     reward = (-1) * torch.abs(trg_eos - word_outputs_eos).float()
-                    torch.scatter(target_policy, 0, word_outputs_eos.unsqueeze(0), reward.unsqueeze(0))
+                    target_policy.scatter_(0, word_outputs_eos.unsqueeze(0), reward.unsqueeze(0))
+                    # mask = torch.zeros_like(target_policy, device=device)
+                    # mask = torch.scatter(mask, 0, word_outputs_eos.unsqueeze(0), 1)
+                    # mask = mask.cumsum(dim=0)
 
                 else:
                     _input = torch.gather(src, 0, i)
+                    _input[:, skipping_agents] = EN_NULL
                     _output, _ = model(_input, word_output, rnn_state)
                     _policy_output = _output[:, :, -3:]
-                    action_value, action = torch.max(_policy_output, 2)
+                    action_value, _ = torch.max(_policy_output, 2)
                     target_policy[t, :] = DISCOUNT * action_value
             t += 1
 
@@ -157,7 +163,7 @@ for epoch in range(N_EPOCHS):
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     lr_scheduler.step()
-    epsilon = max(0.05, epsilon - 0.005)
+    epsilon = max(0.05, epsilon - 0.002)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print('Train loss: {}, epsilon: {}'.format(round(train_loss, 10), round(epsilon, 2)))
