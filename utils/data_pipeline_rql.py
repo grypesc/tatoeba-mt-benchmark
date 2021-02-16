@@ -13,7 +13,7 @@ class DataPipeline:
     pretrained FastText embeddings"""
 
     def __init__(self, batch_size=64):
-        train_filepaths = ["data/train_simple_eng.txt", "data/train_simple_spa.txt"]
+        train_filepaths = ["data/train_eng.txt", "data/train_spa.txt"]
         val_filepaths = ["data/validation_eng.txt", "data/validation_spa.txt"]
         test_filepaths = ["data/test_eng.txt", "data/test_spa.txt"]
         self.en_tokenizer = get_tokenizer('spacy', language='en_core_web_md')
@@ -48,14 +48,13 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>', '<sos>'], vectors=FastText(language='es', max_vectors=1000_000))
+            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='es', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
-        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
+        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
         vocab.vectors[vocab['<null>']][0] = 1
         vocab.vectors[vocab['<eos>']][1] = 1
         vocab.vectors[vocab['<pad>']][2] = 1
-        vocab.vectors[vocab['<sos>']][3] = 1
         return vocab
 
     def tensor_from_files(self, filepaths):
