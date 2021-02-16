@@ -5,10 +5,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.data_pipeline_drql2 import DataPipeline
-from utils.tools import epoch_time, int_to_one_hot
+from utils.data_pipeline_rql import DataPipeline
+from utils.tools import epoch_time
 
 torch.set_printoptions(threshold=10_000)
+
 
 class DRQL(nn.Module):
     def __init__(self,
@@ -90,9 +91,8 @@ def train(epsilon):
         i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)
         j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)
         t = 0
-        is_terminal = False
 
-        while not is_terminal:
+        while True:
             input = torch.gather(src, 0, i)
             input[:, skipping_agents] = EN_NULL
             input[:, terminated_agents] = EN_NULL
@@ -107,9 +107,9 @@ def train(epsilon):
 
             policy_outputs[t, :] = torch.gather(policy_output[0, :, :], 1, action.unsqueeze(dim=1)).squeeze()
             policy_outputs[t, terminated_agents] = 0
-            waiting_agents = (action == 0).to(device)
-            skipping_agents = (action == 1).to(device)
-            going_agents = (action == 2).to(device)
+            waiting_agents = (action == 0)
+            skipping_agents = (action == 1)
+            going_agents = (action == 2)
 
             agents_outputting = ~terminated_agents * (skipping_agents + going_agents)
             word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
@@ -136,16 +136,14 @@ def train(epsilon):
 
             with torch.no_grad():
                 if terminated_agents.all():
-                    is_terminal = True
                     trg_is_eos = torch.eq(trg, SPA_EOS)
                     trg_eos = trg_is_eos.max(0)[1]
                     word_outputs_is_eos = torch.eq(torch.max(word_outputs, dim=2)[1], SPA_EOS)
-                    no_eos = ~word_outputs_is_eos.sum(dtype=torch.bool, dim=0)
-                    word_outputs_is_eos[-1, :] = REWARD_PADDING  # in case no eos was produced add eos to the very end
+                    word_outputs_is_eos = torch.cat((word_outputs_is_eos, REWARD_PADDING), dim=0)  # in case no eos was produced add eos to the very end
                     word_outputs_eos = word_outputs_is_eos.max(0)[1]
                     reward = (-1) * torch.abs(trg_eos - word_outputs_eos).float()
-                    reward[no_eos] = (-1)*trg_eos[no_eos].float()
                     target_policy.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
+                    break
 
                 else:
                     _input = torch.gather(src, 0, i)
@@ -161,7 +159,7 @@ def train(epsilon):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
         _word_loss = word_loss(word_outputs, trg)
-        loss = _word_loss + policy_loss(policy_outputs[:t, :], target_policy[:t, :])
+        loss = _word_loss + policy_loss(policy_outputs[:t+1, :], target_policy[:t+1, :])
         loss.backward()
         optimizer.step()
         epoch_loss += _word_loss.item()
@@ -180,7 +178,7 @@ for epoch in range(N_EPOCHS):
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     lr_scheduler.step()
-    epsilon = max(0.05, epsilon - 0.001)
+    epsilon = max(0.05, epsilon - 0.002)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print('Train loss: {}, epsilon: {}'.format(round(train_loss, 10), round(epsilon, 2)))

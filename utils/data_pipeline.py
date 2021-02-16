@@ -3,7 +3,7 @@ import torch
 
 from collections import Counter
 from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import Vocab
+from torchtext.vocab import Vocab, FastText
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
@@ -34,7 +34,7 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors='glove.6B.300d')
+        vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors=FastText(language='en', max_vectors=500000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
