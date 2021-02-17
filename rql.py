@@ -12,7 +12,7 @@ from utils.tools import epoch_time
 torch.set_printoptions(threshold=10_000)
 
 
-class DRQL(nn.Module):
+class RQL(nn.Module):
     def __init__(self,
                  input_dim: int,
                  src_emb_dim: int,
@@ -43,9 +43,6 @@ train_loader = data.train_loader
 valid_loader = data.valid_loader
 test_loader = data.test_loader
 
-INPUT_DIM = len(en_vocab)
-OUTPUT_DIM = len(spa_vocab) + 3
-
 SRC_EMB_DIM = en_vocab.vectors.size()[1]
 TRG_EMB_DIM = spa_vocab.vectors.size()[1]
 RNN_HID_DIM = 128
@@ -53,10 +50,10 @@ DISCOUNT = 0.99
 epsilon = 0.5
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = DRQL(INPUT_DIM, SRC_EMB_DIM, TRG_EMB_DIM, RNN_HID_DIM, OUTPUT_DIM).to(device)
+model = RQL(len(en_vocab), SRC_EMB_DIM, TRG_EMB_DIM, RNN_HID_DIM, len(spa_vocab) + 3).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=5e-3)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.99, last_epoch=-1)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 policy_loss = nn.MSELoss()
@@ -64,14 +61,10 @@ policy_loss = nn.MSELoss()
 SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
 EN_NULL = torch.tensor([en_vocab.stoi['<null>']]).to(device)
 SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
-EN_EOS = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
-SPA_UNK = torch.tensor([spa_vocab.stoi['<unk>']]).to(device)
-SPA_PAD = torch.tensor([spa_vocab.stoi['<pad>']]).to(device)
-EN_PAD = torch.tensor([en_vocab.stoi['<pad>']]).to(device)
 
 
 def episode(src, trg, epsilon, teacher_forcing):
-    batch_size = src.size()[1]  # current
+    batch_size = src.size()[1]
     src_seq_len = src.size()[0]
     trg_seq_len = trg.size()[0]
     word_output = torch.tensor(([batch_size * [spa_vocab.stoi["<null>"]]]), device=device)
@@ -86,14 +79,13 @@ def episode(src, trg, epsilon, teacher_forcing):
     terminated_on = torch.full((batch_size,), -1, device=device)
 
     REWARD_PADDING = torch.full((1, batch_size), fill_value=True, device=device)
-    i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)
-    j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)
+    i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
+    j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
     t = 0  # time
 
     while True:
         input = torch.gather(src, 0, i)
-        input[:, skipping_agents] = EN_NULL
-        input[:, terminated_agents] = EN_NULL
+        input[:, skipping_agents + terminated_agents] = EN_NULL
         output, rnn_state = model(input, word_output, rnn_state)
         _, word_output = torch.max(output[:, :, :-3], dim=2)
         policy_output = output[:, :, -3:]
@@ -128,7 +120,7 @@ def episode(src, trg, epsilon, teacher_forcing):
         i[i >= src_seq_len] = src_seq_len - 1
         j[j >= trg_seq_len] = trg_seq_len - 1
 
-        if random.random() < teacher_forcing:  # Teacher forcing
+        if random.random() < teacher_forcing:
             word_output[:, :] = torch.gather(trg, 0, old_j)
         word_output[:, waiting_agents] = SPA_NULL
         word_output[:, terminated_agents] = SPA_EOS
@@ -143,7 +135,7 @@ def episode(src, trg, epsilon, teacher_forcing):
                 word_outputs_eos = word_outputs_is_eos.max(0)[1]
                 reward = (-1) * torch.abs(trg_eos - word_outputs_eos).float()
                 target_policy.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
-                return word_outputs, policy_outputs, target_policy, torch.mean(reward)
+                return word_outputs, policy_outputs, target_policy, float(torch.mean(reward))
 
             else:
                 _input = torch.gather(src, 0, i)
@@ -172,7 +164,7 @@ def train(epsilon):
         optimizer.step()
         epoch_loss += _word_loss.item()
         epoch_reward += mean_reward
-    return epoch_loss / len(train_loader), float(epoch_reward / len(train_loader))
+    return epoch_loss / len(train_loader), epoch_reward / len(train_loader)
 
 
 def evaluate(loader):
@@ -187,7 +179,7 @@ def evaluate(loader):
             trg = trg.view(-1)
             epoch_loss += word_loss(word_outputs, trg).item()
             epoch_reward += mean_reward
-    return epoch_loss / len(loader), float(epoch_reward / len(loader))
+    return epoch_loss / len(loader), epoch_reward / len(loader)
 
 
 N_EPOCHS = 500
