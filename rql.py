@@ -18,12 +18,13 @@ class RQL(nn.Module):
                  src_emb_dim: int,
                  trg_emb_dim: int,
                  rnn_hid_dim: int,
+                 num_layers: int,
                  output_dim: int):
         super().__init__()
 
         self.src_embedding = nn.Embedding(input_dim, src_emb_dim).from_pretrained(en_vocab.vectors, freeze=True)
         self.trg_embedding = nn.Embedding(input_dim, trg_emb_dim).from_pretrained(spa_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=1, bidirectional=False)
+        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_layers, bidirectional=False)
         self.output = nn.Linear(rnn_hid_dim, output_dim)
 
     def forward(self, src, previous_output, rnn_state):
@@ -36,6 +37,12 @@ class RQL(nn.Module):
 
 
 BATCH_SIZE = 64
+RNN_HID_DIM = 256
+NUM_LAYERS = 2
+DISCOUNT = 0.99
+epsilon = 0.5
+teacher_forcing = 0.5
+
 data = DataPipeline(batch_size=BATCH_SIZE)
 en_vocab = data.en_vocab
 spa_vocab = data.spa_vocab
@@ -43,17 +50,11 @@ train_loader = data.train_loader
 valid_loader = data.valid_loader
 test_loader = data.test_loader
 
-SRC_EMB_DIM = en_vocab.vectors.size()[1]
-TRG_EMB_DIM = spa_vocab.vectors.size()[1]
-RNN_HID_DIM = 128
-DISCOUNT = 0.99
-epsilon = 0.5
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = RQL(len(en_vocab), SRC_EMB_DIM, TRG_EMB_DIM, RNN_HID_DIM, len(spa_vocab) + 3).to(device)
+model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=5e-3)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
+optimizer = optim.Adam(model.parameters(), lr=2e-3)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.99, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 policy_loss = nn.MSELoss()
@@ -68,7 +69,7 @@ def episode(src, trg, epsilon, teacher_forcing):
     src_seq_len = src.size()[0]
     trg_seq_len = trg.size()[0]
     word_output = torch.tensor(([batch_size * [spa_vocab.stoi["<null>"]]]), device=device)
-    rnn_state = torch.zeros((1, batch_size, RNN_HID_DIM), device=device)
+    rnn_state = torch.zeros((NUM_LAYERS, batch_size, RNN_HID_DIM), device=device)
 
     word_outputs = torch.zeros((trg_seq_len, batch_size, len(spa_vocab)), device=device)
     policy_outputs = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
@@ -148,13 +149,13 @@ def episode(src, trg, epsilon, teacher_forcing):
         t += 1
 
 
-def train(epsilon):
+def train(epsilon, teacher_forcing):
     model.train()
     epoch_loss = 0
     epoch_reward = 0
     for iteration, (src, trg) in enumerate(train_loader):
         src, trg = src.to(device), trg.to(device)
-        word_outputs, policy_outputs, target_policy, mean_reward = episode(src, trg, epsilon, 0.5)
+        word_outputs, policy_outputs, target_policy, mean_reward = episode(src, trg, epsilon, teacher_forcing)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
@@ -189,17 +190,18 @@ print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_g
 # profile.enable()
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_mean_rew = train(epsilon)
+    train_loss, train_mean_rew = train(epsilon, teacher_forcing)
     val_loss, val_mean_rew = evaluate(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-    print('Train loss: {}, PPL: {}, mean reward: {}, epsilon: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3), round(train_mean_rew, 3),  round(epsilon, 2)))
+    print('Train loss: {}, PPL: {}, mean reward: {}, epsilon: {}, teacher forcing: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3), round(train_mean_rew, 3),  round(epsilon, 2),  round(teacher_forcing, 2)))
     print('Valid loss: {}, PPL: {}, mean reward: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(val_mean_rew, 3)))
 
     lr_scheduler.step()
-    epsilon = max(0.05, epsilon - 0.005)
+    epsilon = max(0.05, epsilon - 0.1)
+    teacher_forcing = max(0.05, teacher_forcing - 0.1)
 
 test_loss, test_mean_rew = evaluate(test_loader)
 print('Test loss: {}, PPL: {}, mean reward: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3)))
