@@ -11,7 +11,10 @@ git clone https://github.com/grypesc/atmt
 cd atmt && mkdir data
 python3 -m venv venv
 source venv/bin/activate
+pip install pip -U
 pip install -r requirements.txt
+python -m spacy download en_core_web_md
+python -m spacy download es_core_news_md
 ```
 Download english-spanish sentences dataset from https://www.manythings.org/anki/ and put spa.txt file inside data directory. 
 Create training, validation, test sets by running generate_dataset.py:
