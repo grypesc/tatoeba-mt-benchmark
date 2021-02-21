@@ -10,7 +10,12 @@ from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from torch.utils.data import DataLoader
 from typing import Tuple
+
 from utils.data_pipeline import DataPipeline
+from utils.tools import epoch_time
+
+random.seed(20)
+torch.manual_seed(20)
 
 
 class Encoder(nn.Module):
@@ -155,7 +160,7 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-data = DataPipeline(batch_size=64)
+data = DataPipeline(batch_size=128)
 en_vocab = data.en_vocab
 spa_vocab = data.spa_vocab
 train_loader = data.train_loader
@@ -242,13 +247,6 @@ def evaluate(model: nn.Module,
     if calc_bleu:
         bleu = sum(bleu_scores) / len(bleu_scores)
     return epoch_loss / len(iterator), bleu
-
-
-def epoch_time(start_time: int, end_time: int):
-    elapsed_time = end_time - start_time
-    elapsed_mins = int(elapsed_time / 60)
-    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
-    return elapsed_mins, elapsed_secs
 
 
 N_EPOCHS = 20

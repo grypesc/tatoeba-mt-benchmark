@@ -10,6 +10,8 @@ from utils.data_pipeline_rql import DataPipeline
 from utils.tools import epoch_time
 
 torch.set_printoptions(threshold=10_000)
+random.seed(20)
+torch.manual_seed(20)
 
 
 class RQL(nn.Module):
@@ -24,7 +26,7 @@ class RQL(nn.Module):
 
         self.src_embedding = nn.Embedding(input_dim, src_emb_dim).from_pretrained(en_vocab.vectors, freeze=True)
         self.trg_embedding = nn.Embedding(input_dim, trg_emb_dim).from_pretrained(spa_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_layers, bidirectional=False)
+        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_layers, bidirectional=False, dropout=0)
         self.output = nn.Linear(rnn_hid_dim, output_dim)
 
     def forward(self, src, previous_output, rnn_state):
@@ -36,8 +38,8 @@ class RQL(nn.Module):
         return outputs, rnn_state
 
 
-BATCH_SIZE = 64
-RNN_HID_DIM = 256
+BATCH_SIZE = 128
+RNN_HID_DIM = 1024
 NUM_LAYERS = 2
 DISCOUNT = 0.99
 epsilon = 0.5
@@ -54,7 +56,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=2e-3)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.99, last_epoch=-1)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
 policy_loss = nn.MSELoss()
@@ -183,7 +185,7 @@ def evaluate(loader):
     return epoch_loss / len(loader), epoch_reward / len(loader)
 
 
-N_EPOCHS = 500
+N_EPOCHS = 10
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 # profile = cProfile.Profile()
@@ -201,7 +203,7 @@ for epoch in range(N_EPOCHS):
 
     lr_scheduler.step()
     epsilon = max(0.05, epsilon - 0.1)
-    teacher_forcing = max(0.05, teacher_forcing - 0.1)
+    teacher_forcing = max(0.1, teacher_forcing - 0.1)
 
 test_loss, test_mean_rew = evaluate(test_loader)
 print('Test loss: {}, PPL: {}, mean reward: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3)))

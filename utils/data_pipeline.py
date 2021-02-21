@@ -34,7 +34,7 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors=FastText(language='en', max_vectors=500000))
+        vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors=FastText(language='en', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
