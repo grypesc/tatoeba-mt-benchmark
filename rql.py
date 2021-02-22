@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from utils.data_pipeline_rql import DataPipeline
-from utils.tools import epoch_time
+from utils.tools import epoch_time, bleu
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -40,7 +40,7 @@ class RQL(nn.Module):
 
 BATCH_SIZE = 128
 RNN_HID_DIM = 1024
-NUM_LAYERS = 2
+NUM_LAYERS = 1
 DISCOUNT = 0.99
 epsilon = 0.5
 teacher_forcing = 0.5
@@ -172,17 +172,17 @@ def train(epsilon, teacher_forcing):
 
 def evaluate(loader):
     model.eval()
-    epoch_loss = 0
-    epoch_reward = 0
+    epoch_loss, epoch_reward, epoch_bleu = 0, 0, 0
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, mean_reward = episode(src, trg, 0, 0)
+            epoch_bleu += bleu(word_outputs, trg, spa_vocab, device)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
             epoch_loss += word_loss(word_outputs, trg).item()
             epoch_reward += mean_reward
-    return epoch_loss / len(loader), epoch_reward / len(loader)
+    return epoch_loss / len(loader), epoch_reward / len(loader), epoch_bleu / len(loader)
 
 
 N_EPOCHS = 10
@@ -193,20 +193,20 @@ print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_g
 for epoch in range(N_EPOCHS):
     start_time = time.time()
     train_loss, train_mean_rew = train(epsilon, teacher_forcing)
-    val_loss, val_mean_rew = evaluate(valid_loader)
+    val_loss, val_mean_rew, val_bleu = evaluate(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print('Train loss: {}, PPL: {}, mean reward: {}, epsilon: {}, teacher forcing: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3), round(train_mean_rew, 3),  round(epsilon, 2),  round(teacher_forcing, 2)))
-    print('Valid loss: {}, PPL: {}, mean reward: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(val_mean_rew, 3)))
+    print('Valid loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(val_mean_rew, 3), round(100*val_bleu, 2)))
 
     lr_scheduler.step()
     epsilon = max(0.05, epsilon - 0.1)
     teacher_forcing = max(0.1, teacher_forcing - 0.1)
 
-test_loss, test_mean_rew = evaluate(test_loader)
-print('Test loss: {}, PPL: {}, mean reward: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3)))
+test_loss, test_mean_rew, test_bleu = evaluate(test_loader)
+print('Test loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3), round(100*test_bleu, 2)))
 
 # profile.disable()
 # profile.print_stats(sort='time')

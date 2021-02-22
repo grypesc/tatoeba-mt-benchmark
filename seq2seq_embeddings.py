@@ -6,13 +6,12 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from torch.utils.data import DataLoader
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time
+from utils.tools import epoch_time, bleu
 
 random.seed(20)
 torch.manual_seed(20)
@@ -212,41 +211,19 @@ def train(model: nn.Module,
 
 def evaluate(model: nn.Module,
              iterator: torch.utils.data.DataLoader,
-             criterion: nn.Module,
-             calc_bleu=False):
+             criterion: nn.Module):
     model.eval()
-
-    epoch_loss = 0
-    bleu_scores = []
+    epoch_loss, epoch_bleu = 0, 0
     with torch.no_grad():
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-
-            if calc_bleu:
-                _, indices = torch.max(output, 2)
-                for i in range(0, output.shape[1]):
-                    out_sentence = [spa_vocab.itos[x] for x in indices[1:, i]]
-                    trg_sentence = [spa_vocab.itos[x] for x in trg[1:, i]]
-                    try:
-                        eos_index = out_sentence.index("<eos>")
-                    except ValueError:
-                        eos_index = len(
-                            trg_sentence)  # If output sentence doesn't have eos then make it as long as target sentence to satisfy bleu score function
-                    out_sentence = out_sentence[:eos_index]
-                    eos_index = trg_sentence.index("<eos>")
-                    trg_sentence = trg_sentence[:eos_index]
-                    bleu_scores.append(sentence_bleu([trg_sentence], out_sentence, weights=(0.25, 0.25, 0.25, 0.25)))
-
+            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, device)
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
             loss = criterion(output, trg)
             epoch_loss += loss.item()
-
-    bleu = None
-    if calc_bleu:
-        bleu = sum(bleu_scores) / len(bleu_scores)
-    return epoch_loss / len(iterator), bleu
+    return epoch_loss / len(iterator), epoch_bleu / len(iterator)
 
 
 N_EPOCHS = 20
@@ -257,15 +234,15 @@ print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_g
 for epoch in range(N_EPOCHS):
     start_time = time.time()
     train_loss = train(model, train_loader, optimizer, criterion, CLIP)
-    valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, calc_bleu=True)
+    valid_loss, valid_bleu = evaluate(model, valid_loader, criterion)
 
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-    print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(valid_bleu, 3)}')
+    print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(100*valid_bleu, 2)}')
 
-test_loss, test_bleu = evaluate(model, test_loader, criterion, calc_bleu=True)
+test_loss, test_bleu = evaluate(model, test_loader, criterion)
 
-print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(test_bleu, 3)}')
+print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(100*test_bleu, 2)}')
