@@ -1,8 +1,8 @@
 # atmt
 Approaches to machine translation  
 Different and new machine translation algorithms tested on tatoeba english to spanish dataset. Currently implemented:
-* seq2seq.py - RNN Encoder and decoder with attention without pretrained embeddings.
-* seq2seq_embeddings.py - RNN Encoder and decoder with attention with FastText embeddings.
+* enc_dec_attn_no_embeddings.py - RNN encoder-decoder with attention.
+* enc_dec_attn.py - RNN encoder-decoder with attention and FastText embeddings.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
 
 Setup:

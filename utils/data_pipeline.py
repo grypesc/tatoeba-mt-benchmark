@@ -8,9 +8,9 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 
-class DataPipeline:
-    """Provides vocabularies and data loaders for MT models from english to spanish sentences. Uses
-    pretrained Glove-300 embeddings"""
+class DataPipeline:  # TODO: base class maybe?
+    """Provides vocabularies and data loaders for encoder decoder models from english to spanish sentences. Uses
+    pretrained FastText embeddings"""
 
     def __init__(self, batch_size=64):
         train_filepaths = ["data/train_eng.txt", "data/train_spa.txt"]

@@ -8,8 +8,8 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 
-class DataPipeline:
-    """Provides vocabularies and data loaders for MT models from english to spanish sentences. Uses
+class DataPipelineRQL:
+    """Provides vocabularies and data loaders for rql models from english to spanish sentences. Uses
     pretrained FastText embeddings"""
 
     def __init__(self, batch_size=64):
