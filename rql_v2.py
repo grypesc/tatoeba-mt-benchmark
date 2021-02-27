@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.data_pipeline_rql import DataPipeline
+from utils.data_pipeline_rql import DataPipelineRQL
 from utils.tools import epoch_time, bleu
 
 torch.set_printoptions(threshold=10_000)
@@ -47,7 +47,7 @@ epsilon = 0.5
 teacher_forcing = 0.5
 policy_loss_weight = 0.01
 
-data = DataPipeline(batch_size=BATCH_SIZE)
+data = DataPipelineRQL(batch_size=BATCH_SIZE)
 en_vocab = data.en_vocab
 spa_vocab = data.spa_vocab
 train_loader = data.train_loader
@@ -58,10 +58,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=5e-3)
-lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95, last_epoch=-1)
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.99, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
-word_loss_not_reduced = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'], reduction='none')
+word_loss_per_agent = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'], reduction='none')
 policy_loss = nn.MSELoss()
 
 SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
@@ -113,14 +113,10 @@ def episode(src, trg, epsilon, teacher_forcing):
         old_j = j
         i = i + ~terminated_agents * (waiting_agents + going_agents)
         just_terminated_agents = ~terminated_agents * ((torch.gather(trg, 0, j) == SPA_EOS)*agents_outputting + (i >= src_seq_len))
+        just_terminated_agents = torch.squeeze(just_terminated_agents)
         j = j + agents_outputting
 
-        word_output[:, waiting_agents] = SPA_NULL
-
         terminated_agents = terminated_agents + just_terminated_agents
-        just_terminated_agents = torch.squeeze(just_terminated_agents)
-        terminated_agents = torch.squeeze(terminated_agents)
-
         terminated_on[just_terminated_agents] = t
         terminated_on_j[0, just_terminated_agents] = old_j[0, just_terminated_agents]
 
@@ -139,16 +135,15 @@ def episode(src, trg, epsilon, teacher_forcing):
                 is_lazy_penalty = (terminated_on_j != trg_eos).squeeze()
                 trg_ = trg.view(-1)
                 word_outputs_ = word_outputs.view(-1, word_outputs.shape[-1])
-                reward = (-1) *torch.reshape(word_loss_not_reduced(word_outputs_, trg_), (trg_seq_len, batch_size)).sum(dim=0) - 50*is_lazy_penalty
+                reward = (-1) *torch.reshape(word_loss_per_agent(word_outputs_, trg_), (trg_seq_len, batch_size)).sum(dim=0) - 50*is_lazy_penalty
                 target_policy.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
                 return word_outputs, policy_outputs, target_policy, float(torch.mean(reward))
 
-            else:
+            else:  # all agents take action and observe reward
                 _input = torch.gather(src, 0, i)
                 _input[:, skipping_agents] = EN_NULL
                 _output, _ = model(_input, word_output, rnn_state)
-                _policy_output = _output[:, :, -3:]
-                action_value, _ = torch.max(_policy_output, 2)
+                action_value, _ = torch.max(_output[:, :, -3:], 2)
                 target_policy[t, :] = DISCOUNT * action_value
                 target_policy[t, terminated_agents] = 0
         t += 1
