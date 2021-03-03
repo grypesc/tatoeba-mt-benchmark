@@ -4,6 +4,7 @@ Different and new machine translation algorithms tested on tatoeba english to sp
 * enc_dec_attn_no_embeddings.py - RNN encoder-decoder with attention.
 * enc_dec_attn.py - RNN encoder-decoder with attention and FastText embeddings.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
+* rql_v2.py - Recurrent Q-learning algorithm with agents translating on-line (different termination conditions and rewards, results are rather worse than rql.py).
 
 Setup:
 ```bash
