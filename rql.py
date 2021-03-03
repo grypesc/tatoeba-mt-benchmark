@@ -97,7 +97,7 @@ def episode(src, trg, epsilon, teacher_forcing):
         if random.random() < epsilon:
             action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)[0]
         else:
-            action = torch.max(output[:, :, -3:], 2)[1][0].to(device)
+            action = torch.max(output[:, :, -3:], 2)[1][0]
 
         Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
         Q_used[t, terminated_agents] = 0
@@ -108,10 +108,10 @@ def episode(src, trg, epsilon, teacher_forcing):
         agents_outputting = ~terminated_agents * (skipping_agents + going_agents)
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
-        old_j = j
         i = i + ~terminated_agents * (waiting_agents + going_agents)
-        just_terminated_agents = ~terminated_agents * ((torch.gather(trg, 0, j) == SPA_EOS)*agents_outputting + (i >= src_seq_len))
+        just_terminated_agents = ~terminated_agents * ((torch.gather(trg, 0, j) == SPA_EOS) * agents_outputting + (i >= src_seq_len))
         just_terminated_agents = torch.squeeze(just_terminated_agents)
+        old_j = j
         j = j + agents_outputting
 
         terminated_agents = terminated_agents + just_terminated_agents
@@ -133,7 +133,7 @@ def episode(src, trg, epsilon, teacher_forcing):
                 is_lazy_penalty = (terminated_on_j != trg_eos).squeeze()
                 trg_ = trg.view(-1)
                 word_outputs_ = word_outputs.view(-1, word_outputs.shape[-1])
-                reward = (-1) *torch.reshape(word_loss_per_agent(word_outputs_, trg_), (trg_seq_len, batch_size)).sum(dim=0) - 50*is_lazy_penalty
+                reward = (-1) * torch.reshape(word_loss_per_agent(word_outputs_, trg_), (trg_seq_len, batch_size)).sum(dim=0) - 100 * is_lazy_penalty
                 Q_target.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
                 return word_outputs, Q_used, Q_target, float(torch.mean(reward))
 
@@ -181,7 +181,7 @@ def evaluate(loader):
     return epoch_loss / len(loader), epoch_reward / len(loader), epoch_bleu / len(loader)
 
 
-N_EPOCHS = 500
+N_EPOCHS = 50
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 # profile = cProfile.Profile()

@@ -95,7 +95,7 @@ def episode(src, trg, epsilon, teacher_forcing):
         if random.random() < epsilon:
             action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)[0]
         else:
-            action = torch.max(output[:, :, -3:], 2)[1][0].to(device)
+            action = torch.max(output[:, :, -3:], 2)[1][0]
 
         Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
         Q_used[t, terminated_agents] = 0
@@ -129,8 +129,7 @@ def episode(src, trg, epsilon, teacher_forcing):
                 trg_is_eos = torch.eq(trg, SPA_EOS)
                 trg_eos = trg_is_eos.max(0)[1]
                 word_outputs_is_eos = torch.eq(torch.max(word_outputs, dim=2)[1], SPA_EOS)
-                word_outputs_is_eos = torch.cat((word_outputs_is_eos, REWARD_PADDING),
-                                                dim=0)  # in case no eos was produced add eos to the very end
+                word_outputs_is_eos = torch.cat((word_outputs_is_eos, REWARD_PADDING), dim=0)  # in case no eos was produced add eos to the very end
                 word_outputs_eos = word_outputs_is_eos.max(0)[1]
                 reward = (-1) * torch.abs(trg_eos - word_outputs_eos).float()
                 Q_target.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
@@ -180,7 +179,7 @@ def evaluate(loader):
     return epoch_loss / len(loader), epoch_reward / len(loader), epoch_bleu / len(loader)
 
 
-N_EPOCHS = 500
+N_EPOCHS = 50
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 # profile = cProfile.Profile()
