@@ -66,6 +66,7 @@ policy_loss = nn.MSELoss()
 SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
 EN_NULL = torch.tensor([en_vocab.stoi['<null>']]).to(device)
 SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
+EN_EOS = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
 
 
 def episode(src, trg, epsilon, teacher_forcing):
@@ -101,16 +102,16 @@ def episode(src, trg, epsilon, teacher_forcing):
 
         Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
         Q_used[t, terminated_agents] = 0
-        waiting_agents = (action == 0)
-        skipping_agents = (action == 1)
-        going_agents = (action == 2)
+        waiting_agents = ~terminated_agents * (action == 0)
+        skipping_agents = ~terminated_agents * (action == 1)
+        going_agents = ~terminated_agents * (action == 2)
 
-        agents_outputting = ~terminated_agents * (skipping_agents + going_agents)
+        agents_outputting = skipping_agents + going_agents
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
-        i = i + ~terminated_agents * (waiting_agents + going_agents)
-        just_terminated_agents = ~terminated_agents * ((torch.gather(trg, 0, j) == SPA_EOS) * agents_outputting + (i >= src_seq_len))
+        just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS) + (waiting_agents + going_agents) * (torch.gather(src, 0, i) == EN_EOS)
         just_terminated_agents = torch.squeeze(just_terminated_agents)
+        i = i + (waiting_agents + going_agents)
         old_j = j
         j = j + agents_outputting
 
@@ -124,7 +125,7 @@ def episode(src, trg, epsilon, teacher_forcing):
         if random.random() < teacher_forcing:
             word_output[:, :] = torch.gather(trg, 0, old_j)
         word_output[:, waiting_agents] = SPA_NULL
-        word_output[:, terminated_agents] = SPA_EOS
+        # word_output[:, terminated_agents] = SPA_EOS
 
         with torch.no_grad():
             _input = torch.gather(src, 0, i)
