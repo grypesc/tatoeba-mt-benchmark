@@ -39,7 +39,7 @@ class RQL(nn.Module):
 
 
 BATCH_SIZE = 64
-RNN_HID_DIM = 1024
+RNN_HID_DIM = 512
 NUM_LAYERS = 1
 DISCOUNT = 0.99
 epsilon = 0.5
@@ -56,7 +56,7 @@ test_loader = data.test_loader
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
 word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
@@ -66,7 +66,6 @@ policy_loss = nn.MSELoss()
 SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
 EN_NULL = torch.tensor([en_vocab.stoi['<null>']]).to(device)
 SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
-EN_EOS = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
 
 
 def episode(src, trg, epsilon, teacher_forcing):
@@ -102,16 +101,16 @@ def episode(src, trg, epsilon, teacher_forcing):
 
         Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
         Q_used[t, terminated_agents] = 0
-        waiting_agents = ~terminated_agents * (action == 0)
-        skipping_agents = ~terminated_agents * (action == 1)
-        going_agents = ~terminated_agents * (action == 2)
+        waiting_agents = (action == 0)
+        skipping_agents = (action == 1)
+        going_agents = (action == 2)
 
-        agents_outputting = skipping_agents + going_agents
+        agents_outputting = ~terminated_agents * (skipping_agents + going_agents)
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
-        just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS) + (waiting_agents + going_agents) * (torch.gather(src, 0, i) == EN_EOS)
+        i = i + ~terminated_agents * (waiting_agents + going_agents)
+        just_terminated_agents = ~terminated_agents * ((torch.gather(trg, 0, j) == SPA_EOS) * agents_outputting + (i >= src_seq_len))
         just_terminated_agents = torch.squeeze(just_terminated_agents)
-        i = i + (waiting_agents + going_agents)
         old_j = j
         j = j + agents_outputting
 
@@ -125,30 +124,26 @@ def episode(src, trg, epsilon, teacher_forcing):
         if random.random() < teacher_forcing:
             word_output[:, :] = torch.gather(trg, 0, old_j)
         word_output[:, waiting_agents] = SPA_NULL
-        # word_output[:, terminated_agents] = SPA_EOS
+        word_output[:, terminated_agents] = SPA_EOS
 
         with torch.no_grad():
-            _input = torch.gather(src, 0, i)
-            _input[:, skipping_agents] = EN_NULL
-            _output, _ = model(_input, word_output, rnn_state)
-            action_value, _ = torch.max(_output[:, :, -3:], 2)
-            reward = torch.zeros((batch_size,), device=device)
-            reward[agents_outputting] = (-1) * word_loss_per_agent(output[0, agents_outputting, :-3], torch.gather(trg, 0, old_j)[0, agents_outputting])
-            Q_target[t, :] = reward + DISCOUNT * action_value
-            Q_target[t, terminated_agents] = 0
-            Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
-
             if terminated_agents.all():
                 trg_is_eos = torch.eq(trg, SPA_EOS)
                 trg_eos = trg_is_eos.max(0)[1]
                 is_lazy_penalty = (terminated_on_j != trg_eos).squeeze()
-                # trg_ = trg.view(-1)
-                # word_outputs_ = word_outputs.view(-1, word_outputs.shape[-1])
-                Q_target_terminated = torch.gather(Q_target, 0, terminated_on.unsqueeze(0)) - 50.0 * is_lazy_penalty
-                Q_target.scatter_(0, terminated_on.unsqueeze(0), Q_target_terminated)
+                trg_ = trg.view(-1)
+                word_outputs_ = word_outputs.view(-1, word_outputs.shape[-1])
+                reward = (-1) * torch.reshape(word_loss_per_agent(word_outputs_, trg_), (trg_seq_len, batch_size)).sum(dim=0) - 50 * is_lazy_penalty
+                Q_target.scatter_(0, terminated_on.unsqueeze(0), reward.unsqueeze(0))
                 return word_outputs, Q_used, Q_target, float(torch.mean(reward))
 
-
+            else:  # all agents take action and observe reward
+                _input = torch.gather(src, 0, i)
+                _input[:, skipping_agents] = EN_NULL
+                _output, _ = model(_input, word_output, rnn_state)
+                action_value, _ = torch.max(_output[:, :, -3:], 2)
+                Q_target[t, :] = DISCOUNT * action_value
+                Q_target[t, terminated_agents] = 0
         t += 1
 
 
@@ -186,7 +181,7 @@ def evaluate(loader):
     return epoch_loss / len(loader), epoch_reward / len(loader), epoch_bleu / len(loader)
 
 
-N_EPOCHS = 500
+N_EPOCHS = 30
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 # profile = cProfile.Profile()
@@ -203,8 +198,8 @@ for epoch in range(N_EPOCHS):
     print('Valid loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(val_mean_rew, 3), round(100*val_bleu, 2)))
 
     lr_scheduler.step()
-    epsilon = max(0.1, epsilon - 0.05)
-    teacher_forcing = max(0.1, teacher_forcing - 0.05)
+    epsilon = max(0.1, epsilon - 0.03)
+    teacher_forcing = max(0.1, teacher_forcing - 0.03)
 
 test_loss, test_mean_rew, test_bleu = evaluate(test_loader)
 print('Test loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3), round(100*test_bleu, 2)))
