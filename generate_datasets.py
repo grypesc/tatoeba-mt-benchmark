@@ -15,6 +15,7 @@ if __name__ == '__main__':
     lines = open("data/spa.txt", encoding='utf-8').read().strip().split('\n')
     pairs = [[s.lower() for s in l.split('\t')[0:2]] for l in lines]
     random.shuffle(pairs)
+    pairs = [[line.replace('\xa0', '') for line in pair] for pair in pairs]  # remove no breaking space, happens in tatoeba
     train_set = pairs[0:int(0.6 * len(pairs))]
     validation_set = pairs[int(0.6 * len(pairs)):int(0.8 * len(pairs))]
     test_set = pairs[int(0.8 * len(pairs)):]
