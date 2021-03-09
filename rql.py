@@ -82,7 +82,6 @@ def episode(src, trg, epsilon, teacher_forcing):
 
     writing_agents = torch.full((batch_size,), False, device=device)
     terminated_agents = torch.full((batch_size,), False, device=device)
-    naughty_agents = torch.full((batch_size,), False, device=device)  # naughty agents wanted more input after receiving eos on input
     terminated_on = torch.full((batch_size,), -1, device=device)
 
     i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
@@ -110,9 +109,8 @@ def episode(src, trg, epsilon, teacher_forcing):
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
         just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
-        just_naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
-        naughty_agents = naughty_agents + just_naughty_agents
-        just_terminated_agents = just_terminated_agents + just_naughty_agents
+        naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+        just_terminated_agents = just_terminated_agents + naughty_agents
         i = i + (reading_agents + bothing_agents)
         old_j = j
         j = j + agents_outputting
@@ -131,16 +129,15 @@ def episode(src, trg, epsilon, teacher_forcing):
             _input = torch.gather(src, 0, i)
             _input[:, writing_agents] = EN_NULL
             _output, _ = model(_input, word_output, rnn_state)
-            action_value, _ = torch.max(_output[:, :, -3:], 2)
-            reward = torch.zeros((batch_size,), device=device)
-            reward[agents_outputting] = (-1) * word_loss_per_agent(output[0, agents_outputting, :-3], torch.gather(trg, 0, old_j)[0, agents_outputting])
-            Q_target[t, :] = reward + DISCOUNT * action_value
-            Q_target[t, terminated_agents] = 0
+            next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
+
+            reward = (-1) * word_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :])
+            Q_target[t, :] = reward + DISCOUNT * next_best_action_value
+            Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
+            Q_target[t, naughty_agents] = -50.0
 
             if terminated_agents.all():
-                Q_target_when_terminated = torch.gather(Q_target, 0, terminated_on.unsqueeze(0)) - 50.0 * naughty_agents
-                Q_target.scatter_(0, terminated_on.unsqueeze(0), Q_target_when_terminated)
                 return word_outputs, Q_used, Q_target
         t += 1
 
@@ -148,7 +145,7 @@ def episode(src, trg, epsilon, teacher_forcing):
 def train(epsilon, teacher_forcing, policy_loss_weight):
     model.train()
     epoch_loss = 0
-    for iteration, (src, trg) in enumerate(train_loader):
+    for iteration, (src, trg) in enumerate(train_loader):  # TODO: loss norm
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target = episode(src, trg, epsilon, teacher_forcing)
         optimizer.zero_grad()
