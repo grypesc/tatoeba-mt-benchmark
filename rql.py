@@ -82,8 +82,8 @@ def episode(src, trg, epsilon, teacher_forcing):
 
     skipping_agents = torch.full((batch_size,), False, device=device)
     terminated_agents = torch.full((batch_size,), False, device=device)
+    naughty_agents = torch.full((batch_size,), False, device=device)  # naughty agents wanted more input after receiving eos on input
     terminated_on = torch.full((batch_size,), -1, device=device)
-    terminated_on_j = torch.full((1, batch_size), -1, device=device)
 
     i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
     j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
@@ -109,15 +109,16 @@ def episode(src, trg, epsilon, teacher_forcing):
         agents_outputting = skipping_agents + going_agents
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
-        just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS) + (waiting_agents + going_agents) * (torch.gather(src, 0, i) == EN_EOS)
-        just_terminated_agents = torch.squeeze(just_terminated_agents)
+        just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
+        just_naughty_agents = (waiting_agents + going_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+        naughty_agents = naughty_agents + just_naughty_agents
+        just_terminated_agents = just_terminated_agents + just_naughty_agents
         i = i + (waiting_agents + going_agents)
         old_j = j
         j = j + agents_outputting
 
         terminated_agents = terminated_agents + just_terminated_agents
         terminated_on[just_terminated_agents] = t
-        terminated_on_j[0, just_terminated_agents] = old_j[0, just_terminated_agents]
 
         i[i >= src_seq_len] = src_seq_len - 1
         j[j >= trg_seq_len] = trg_seq_len - 1
@@ -125,7 +126,6 @@ def episode(src, trg, epsilon, teacher_forcing):
         if random.random() < teacher_forcing:
             word_output[:, :] = torch.gather(trg, 0, old_j)
         word_output[:, waiting_agents] = SPA_NULL
-        # word_output[:, terminated_agents] = SPA_EOS
 
         with torch.no_grad():
             _input = torch.gather(src, 0, i)
@@ -139,10 +139,7 @@ def episode(src, trg, epsilon, teacher_forcing):
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
 
             if terminated_agents.all():
-                trg_is_eos = torch.eq(trg, SPA_EOS)
-                trg_eos = trg_is_eos.max(0)[1]
-                is_lazy_penalty = (terminated_on_j != trg_eos).squeeze()
-                Q_target_when_terminated = torch.gather(Q_target, 0, terminated_on.unsqueeze(0)) - 50.0 * is_lazy_penalty
+                Q_target_when_terminated = torch.gather(Q_target, 0, terminated_on.unsqueeze(0)) - 50.0 * naughty_agents
                 Q_target.scatter_(0, terminated_on.unsqueeze(0), Q_target_when_terminated)
                 return word_outputs, Q_used, Q_target, float(torch.mean(reward))
         t += 1
