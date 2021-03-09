@@ -80,7 +80,7 @@ def episode(src, trg, epsilon, teacher_forcing):
     Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
     Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
 
-    skipping_agents = torch.full((batch_size,), False, device=device)
+    writing_agents = torch.full((batch_size,), False, device=device)
     terminated_agents = torch.full((batch_size,), False, device=device)
     naughty_agents = torch.full((batch_size,), False, device=device)  # naughty agents wanted more input after receiving eos on input
     terminated_on = torch.full((batch_size,), -1, device=device)
@@ -91,7 +91,7 @@ def episode(src, trg, epsilon, teacher_forcing):
 
     while True:
         input = torch.gather(src, 0, i)
-        input[:, skipping_agents] = EN_NULL
+        input[:, writing_agents] = EN_NULL
         output, rnn_state = model(input, word_output, rnn_state)
         _, word_output = torch.max(output[:, :, :-3], dim=2)
 
@@ -102,18 +102,18 @@ def episode(src, trg, epsilon, teacher_forcing):
 
         Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
         Q_used[t, terminated_agents] = 0
-        waiting_agents = ~terminated_agents * (action == 0)
-        skipping_agents = ~terminated_agents * (action == 1)
-        going_agents = ~terminated_agents * (action == 2)
+        reading_agents = ~terminated_agents * (action == 0)
+        writing_agents = ~terminated_agents * (action == 1)
+        bothing_agents = ~terminated_agents * (action == 2)
 
-        agents_outputting = skipping_agents + going_agents
+        agents_outputting = writing_agents + bothing_agents
         word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
 
         just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
-        just_naughty_agents = (waiting_agents + going_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+        just_naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
         naughty_agents = naughty_agents + just_naughty_agents
         just_terminated_agents = just_terminated_agents + just_naughty_agents
-        i = i + (waiting_agents + going_agents)
+        i = i + (reading_agents + bothing_agents)
         old_j = j
         j = j + agents_outputting
 
@@ -125,11 +125,11 @@ def episode(src, trg, epsilon, teacher_forcing):
 
         if random.random() < teacher_forcing:
             word_output[:, :] = torch.gather(trg, 0, old_j)
-        word_output[:, waiting_agents] = SPA_NULL
+        word_output[:, reading_agents] = SPA_NULL
 
         with torch.no_grad():
             _input = torch.gather(src, 0, i)
-            _input[:, skipping_agents] = EN_NULL
+            _input[:, writing_agents] = EN_NULL
             _output, _ = model(_input, word_output, rnn_state)
             action_value, _ = torch.max(_output[:, :, -3:], 2)
             reward = torch.zeros((batch_size,), device=device)
@@ -141,17 +141,16 @@ def episode(src, trg, epsilon, teacher_forcing):
             if terminated_agents.all():
                 Q_target_when_terminated = torch.gather(Q_target, 0, terminated_on.unsqueeze(0)) - 50.0 * naughty_agents
                 Q_target.scatter_(0, terminated_on.unsqueeze(0), Q_target_when_terminated)
-                return word_outputs, Q_used, Q_target, float(torch.mean(reward))
+                return word_outputs, Q_used, Q_target
         t += 1
 
 
 def train(epsilon, teacher_forcing, policy_loss_weight):
     model.train()
     epoch_loss = 0
-    epoch_reward = 0
     for iteration, (src, trg) in enumerate(train_loader):
         src, trg = src.to(device), trg.to(device)
-        word_outputs, Q_used, Q_target, mean_reward = episode(src, trg, epsilon, teacher_forcing)
+        word_outputs, Q_used, Q_target = episode(src, trg, epsilon, teacher_forcing)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
@@ -160,23 +159,21 @@ def train(epsilon, teacher_forcing, policy_loss_weight):
         loss.backward()
         optimizer.step()
         epoch_loss += _word_loss.item()
-        epoch_reward += mean_reward
-    return epoch_loss / len(train_loader), epoch_reward / len(train_loader)
+    return epoch_loss / len(train_loader)
 
 
 def evaluate(loader):
     model.eval()
-    epoch_loss, epoch_reward, epoch_bleu = 0, 0, 0
+    epoch_loss, epoch_bleu = 0, 0
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.to(device), trg.to(device)
-            word_outputs, _, _, mean_reward = episode(src, trg, 0, 0)
+            word_outputs, _, _ = episode(src, trg, 0, 0)
             epoch_bleu += bleu(word_outputs, trg, spa_vocab, device)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
             epoch_loss += word_loss(word_outputs, trg).item()
-            epoch_reward += mean_reward
-    return epoch_loss / len(loader), epoch_reward / len(loader), epoch_bleu / len(loader)
+    return epoch_loss / len(loader), epoch_bleu / len(loader)
 
 
 N_EPOCHS = 30
@@ -186,21 +183,21 @@ print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_g
 # profile.enable()
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_mean_rew = train(epsilon, teacher_forcing, policy_loss_weight)
-    val_loss, val_mean_rew, val_bleu = evaluate(valid_loader)
+    train_loss = train(epsilon, teacher_forcing, policy_loss_weight)
+    val_loss, val_bleu = evaluate(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-    print('Train loss: {}, PPL: {}, mean reward: {}, epsilon: {}, teacher forcing: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3), round(train_mean_rew, 3),  round(epsilon, 2),  round(teacher_forcing, 2)))
-    print('Valid loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(val_mean_rew, 3), round(100*val_bleu, 2)))
+    print('Train loss: {}, PPL: {}, epsilon: {}, teacher forcing: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3),  round(epsilon, 2),  round(teacher_forcing, 2)))
+    print('Valid loss: {}, PPL: {}, BLEU: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(100*val_bleu, 2)))
 
     lr_scheduler.step()
     epsilon = max(0.1, epsilon - 0.03)
     teacher_forcing = max(0.1, teacher_forcing - 0.0)
 
-test_loss, test_mean_rew, test_bleu = evaluate(test_loader)
-print('Test loss: {}, PPL: {}, mean reward: {}, BLEU: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(test_mean_rew, 3), round(100*test_bleu, 2)))
+test_loss, test_bleu = evaluate(test_loader)
+print('Test loss: {}, PPL: {}, BLEU: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2)))
 
 # profile.disable()
 # profile.print_stats(sort='time')
