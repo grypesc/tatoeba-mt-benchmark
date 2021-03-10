@@ -42,9 +42,10 @@ BATCH_SIZE = 64
 RNN_HID_DIM = 1024
 NUM_LAYERS = 1
 DISCOUNT = 0.99
+POLICY_LOSS_WEIGHT = 0.1
 epsilon = 0.5
 teacher_forcing = 0.5
-policy_loss_weight = 0.01
+
 
 data = DataPipelineRQL(batch_size=BATCH_SIZE)
 en_vocab = data.en_vocab
@@ -56,7 +57,7 @@ test_loader = data.test_loader
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
 mistranslation_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
@@ -142,13 +143,13 @@ def episode(src, trg, epsilon, teacher_forcing):
         t += 1
 
 
-def train(epsilon, teacher_forcing, policy_loss_weight):
+def train(epsilon, teacher_forcing):
     model.train()
     epoch_loss = 0
     loss_avg_decay = 0.99
     _mistranslation_loss_weight, _policy_loss_weight = 0, 0
 
-    for iteration, (src, trg) in enumerate(train_loader, 1):  # TODO: loss norm
+    for iteration, (src, trg) in enumerate(train_loader, 1):
         w_k = loss_avg_decay * (1 - loss_avg_decay ** (iteration - 1)) / (1 - loss_avg_decay ** iteration)
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target = episode(src, trg, epsilon, teacher_forcing)
@@ -161,7 +162,7 @@ def train(epsilon, teacher_forcing, policy_loss_weight):
 
         _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
         _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
-        loss = policy_loss_weight * _policy_loss / _policy_loss_weight + _mistranslation_loss / _mistranslation_loss_weight
+        loss = POLICY_LOSS_WEIGHT * _policy_loss / _policy_loss_weight + _mistranslation_loss / _mistranslation_loss_weight
 
         loss.backward()
         optimizer.step()
@@ -176,7 +177,7 @@ def evaluate(loader):
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _ = episode(src, trg, 0, 0)
-            epoch_bleu += bleu(word_outputs, trg, spa_vocab, device)
+            epoch_bleu += bleu(word_outputs, trg, spa_vocab)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
             epoch_loss += mistranslation_loss(word_outputs, trg).item()
@@ -190,7 +191,7 @@ print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_g
 # profile.enable()
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss = train(epsilon, teacher_forcing, policy_loss_weight)
+    train_loss = train(epsilon, teacher_forcing)
     val_loss, val_bleu = evaluate(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -200,7 +201,7 @@ for epoch in range(N_EPOCHS):
     print('Valid loss: {}, PPL: {}, BLEU: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(100*val_bleu, 2)))
 
     lr_scheduler.step()
-    epsilon = max(0.1, epsilon - 0.03)
+    epsilon = max(0.05, epsilon - 0.05)
     teacher_forcing = max(0.1, teacher_forcing - 0.0)
 
 test_loss, test_bleu = evaluate(test_loader)

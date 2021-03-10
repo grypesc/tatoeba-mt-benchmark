@@ -17,7 +17,7 @@ def int_to_one_hot(index: int, length, device):
     return t
 
 
-def bleu(output, target, vocab, device):
+def bleu(output, target, vocab):
     _, output_indices = torch.max(output, 2)
     output_indices = output_indices.transpose(1, 0)
     target = target.transpose(1, 0)
