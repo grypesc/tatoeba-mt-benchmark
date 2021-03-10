@@ -59,8 +59,8 @@ model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[
 optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
-word_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
-word_loss_per_agent = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'], reduction='none')
+mistranslation_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
+mistranslation_loss_per_agent = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'], reduction='none')
 policy_loss = nn.MSELoss()
 
 SPA_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
@@ -131,7 +131,7 @@ def episode(src, trg, epsilon, teacher_forcing):
             _output, _ = model(_input, word_output, rnn_state)
             next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
-            reward = (-1) * word_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :])
+            reward = (-1) * mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :])
             Q_target[t, :] = reward + DISCOUNT * next_best_action_value
             Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
@@ -145,17 +145,27 @@ def episode(src, trg, epsilon, teacher_forcing):
 def train(epsilon, teacher_forcing, policy_loss_weight):
     model.train()
     epoch_loss = 0
-    for iteration, (src, trg) in enumerate(train_loader):  # TODO: loss norm
+    loss_avg_decay = 0.99
+    _mistranslation_loss_weight, _policy_loss_weight = 0, 0
+
+    for iteration, (src, trg) in enumerate(train_loader, 1):  # TODO: loss norm
+        w_k = loss_avg_decay * (1 - loss_avg_decay ** (iteration - 1)) / (1 - loss_avg_decay ** iteration)
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target = episode(src, trg, epsilon, teacher_forcing)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
-        _word_loss = word_loss(word_outputs, trg)
-        loss = _word_loss + policy_loss_weight * policy_loss(Q_used, Q_target)
+
+        _policy_loss = policy_loss(Q_used, Q_target)
+        _mistranslation_loss = mistranslation_loss(word_outputs, trg)
+
+        _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
+        _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
+        loss = policy_loss_weight * _policy_loss / _policy_loss_weight + _mistranslation_loss / _mistranslation_loss_weight
+
         loss.backward()
         optimizer.step()
-        epoch_loss += _word_loss.item()
+        epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(train_loader)
 
 
@@ -169,7 +179,7 @@ def evaluate(loader):
             epoch_bleu += bleu(word_outputs, trg, spa_vocab, device)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
-            epoch_loss += word_loss(word_outputs, trg).item()
+            epoch_loss += mistranslation_loss(word_outputs, trg).item()
     return epoch_loss / len(loader), epoch_bleu / len(loader)
 
 
