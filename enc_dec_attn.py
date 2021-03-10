@@ -218,7 +218,7 @@ def evaluate(model: nn.Module,
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, device)
+            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab)
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
             loss = criterion(output, trg)
