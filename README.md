@@ -4,7 +4,7 @@ Different and new machine translation algorithms tested on tatoeba english to sp
 * enc_dec_attn_no_embeddings.py - RNN encoder-decoder with attention.
 * enc_dec_attn.py - RNN encoder-decoder with attention and FastText embeddings.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
-* rql_v2.py - Ditto but different agent termination time.
+* rql_v2.py - Ditto but different agent termination conditions.
 
 Setup:
 ```bash
@@ -24,8 +24,9 @@ pip install pip -U
 pip install -r requirements.txt
 python -m spacy download en_core_web_md
 python -m spacy download es_core_news_md
+wget https://www.manythings.org/anki/spa-eng.zip -O data/spa-eng.zip
+unzip data/spa-eng.zip -d data
 ```
-Download english-spanish sentences dataset from https://www.manythings.org/anki/ and put spa.txt file inside data directory. 
 Create training, validation, test sets by running generate_dataset.py:
 
 ```python3
