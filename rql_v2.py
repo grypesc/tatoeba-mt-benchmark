@@ -42,7 +42,7 @@ BATCH_SIZE = 64
 RNN_HID_DIM = 1024
 NUM_LAYERS = 1
 DISCOUNT = 0.99
-POLICY_LOSS_WEIGHT = 0.1
+MISTRANSLATION_LOSS_MULTIPLIER = 5
 epsilon = 0.5
 teacher_forcing = 0.5
 
@@ -57,7 +57,7 @@ test_loader = data.test_loader
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
 mistranslation_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
@@ -111,8 +111,7 @@ def episode(src, trg, epsilon, teacher_forcing):
 
         just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
         naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
-        just_terminated_agents = just_terminated_agents + naughty_agents
-        i = i + (reading_agents + bothing_agents)
+        i = i + ~naughty_agents * (reading_agents + bothing_agents)
         old_j = j
         j = j + agents_outputting
 
@@ -136,9 +135,9 @@ def episode(src, trg, epsilon, teacher_forcing):
             Q_target[t, :] = reward + DISCOUNT * next_best_action_value
             Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
-            Q_target[t, naughty_agents] = -50.0
+            Q_target[t, naughty_agents] = Q_target[t, naughty_agents] - 50.0
 
-            if terminated_agents.all():
+            if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                 return word_outputs, Q_used, Q_target
         t += 1
 
@@ -162,7 +161,7 @@ def train(epsilon, teacher_forcing):
 
         _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
         _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
-        loss = POLICY_LOSS_WEIGHT * _policy_loss / _policy_loss_weight + _mistranslation_loss / _mistranslation_loss_weight
+        loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
 
         loss.backward()
         optimizer.step()

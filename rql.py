@@ -42,7 +42,7 @@ BATCH_SIZE = 64
 RNN_HID_DIM = 1024
 NUM_LAYERS = 1
 DISCOUNT = 0.99
-POLICY_LOSS_WEIGHT = 0.1
+MISTRANSLATION_LOSS_MULTIPLIER = 5
 epsilon = 0.5
 teacher_forcing = 0.5
 
@@ -57,7 +57,7 @@ test_loader = data.test_loader
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = RQL(len(en_vocab), en_vocab.vectors.size()[1], spa_vocab.vectors.size()[1], RNN_HID_DIM, NUM_LAYERS, len(spa_vocab) + 3).to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
 mistranslation_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
@@ -162,7 +162,7 @@ def train(epsilon, teacher_forcing):
 
         _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
         _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
-        loss = POLICY_LOSS_WEIGHT * _policy_loss / _policy_loss_weight + _mistranslation_loss / _mistranslation_loss_weight
+        loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
 
         loss.backward()
         optimizer.step()
