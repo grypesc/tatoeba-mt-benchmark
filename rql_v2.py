@@ -133,9 +133,10 @@ def episode(src, trg, epsilon, teacher_forcing):
 
             reward = (-1) * mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :])
             Q_target[t, :] = reward + DISCOUNT * next_best_action_value
+            Q_target[t, terminated_agents] = 0
             Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
-            Q_target[t, naughty_agents] = Q_target[t, naughty_agents] - 50.0
+            Q_target[t, naughty_agents] = Q_target[t, naughty_agents] - 10.0
 
             if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                 return word_outputs, Q_used, Q_target
