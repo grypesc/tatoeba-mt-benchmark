@@ -25,9 +25,9 @@ class DataPipelineRQL:
         val_data = self.tensor_from_files(val_filepaths)
         test_data = self.tensor_from_files(test_filepaths)
 
-        self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch)
-        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch)
-        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch)
+        self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=4)
+        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=4)
+        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=4)
 
     def build_input_vocab(self, filepath, tokenizer):
         counter = Counter()
