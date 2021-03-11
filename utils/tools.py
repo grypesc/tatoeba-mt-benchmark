@@ -26,3 +26,9 @@ def bleu(output, target, vocab):
     output_str = [[vocab.itos[x] for x in y] for y in output_indices]
     output_str = [x[:len(target_str[i][0])] for i, x in enumerate(output_str)]
     return bleu_score(output_str, target_str)
+
+
+def actions_ratio(actions):
+    s = sum(actions)
+    a = [actions[0]/s, actions[1]/s, actions[2]/s]
+    return [round(action, 2) for action in a]
