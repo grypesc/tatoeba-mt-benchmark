@@ -27,9 +27,9 @@ def episode(src, trg, epsilon, teacher_forcing):
     Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
 
     writing_agents = torch.full((batch_size,), False, device=device)
-    naughty_agents = torch.full((batch_size,), False, device=device)
+    naughty_agents = torch.full((batch_size,), False, device=device)  # Want more input after input eos
     terminated_agents = torch.full((batch_size,), False, device=device)
-    terminated_on = torch.full((batch_size,), -1, device=device)
+    # terminated_on = torch.full((batch_size,), -1, device=device)
 
     i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
     j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
@@ -70,13 +70,13 @@ def episode(src, trg, epsilon, teacher_forcing):
         j = j + agents_outputting
 
         terminated_agents = terminated_agents + just_terminated_agents
-        terminated_on[just_terminated_agents] = t
+        # terminated_on[just_terminated_agents] = t
 
         i[i >= src_seq_len] = src_seq_len - 1
         j[j >= trg_seq_len] = trg_seq_len - 1
 
         if random.random() < teacher_forcing:
-            word_output[:, :] = torch.gather(trg, 0, old_j)
+            word_output = torch.gather(trg, 0, old_j)
         word_output[:, reading_agents] = SPA_NULL
 
         with torch.no_grad():
@@ -121,6 +121,7 @@ def train(epsilon, teacher_forcing):
         loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimizer.step()
         epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(train_loader), total_actions.tolist()
@@ -135,7 +136,7 @@ def evaluate(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, actions = episode(src, trg, 0, 0)
             total_actions += actions
-            epoch_bleu += bleu(word_outputs, trg, spa_vocab)
+            epoch_bleu += bleu(word_outputs, trg, spa_vocab, SPA_EOS)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
             epoch_loss += mistranslation_loss(word_outputs, trg).item()
@@ -147,7 +148,7 @@ RNN_HID_DIM = 512
 DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
-MISTRANSLATION_LOSS_MULTIPLIER = 100
+MISTRANSLATION_LOSS_MULTIPLIER = 30
 epsilon = 0.5
 teacher_forcing = 0.5
 
@@ -193,7 +194,7 @@ for epoch in range(N_EPOCHS):
 
     lr_scheduler.step()
     epsilon = max(0.1, epsilon - 0.05)
-    teacher_forcing = max(0.1, teacher_forcing - 0.0)
+    teacher_forcing = max(0.1, teacher_forcing - 0.05)
 
 test_loss, test_bleu, test_actions = evaluate(test_loader)
 print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))

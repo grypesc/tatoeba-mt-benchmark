@@ -119,6 +119,7 @@ def train(epsilon, teacher_forcing):
         loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimizer.step()
         epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(train_loader), total_actions.tolist()
@@ -133,7 +134,7 @@ def evaluate(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, actions = episode(src, trg, 0, 0)
             total_actions += actions
-            epoch_bleu += bleu(word_outputs, trg, spa_vocab)
+            epoch_bleu += bleu(word_outputs, trg, spa_vocab, SPA_EOS)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
             trg = trg.view(-1)
             epoch_loss += mistranslation_loss(word_outputs, trg).item()
@@ -145,7 +146,7 @@ RNN_HID_DIM = 512
 DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
-MISTRANSLATION_LOSS_MULTIPLIER = 100
+MISTRANSLATION_LOSS_MULTIPLIER = 30
 epsilon = 0.5
 teacher_forcing = 0.5
 

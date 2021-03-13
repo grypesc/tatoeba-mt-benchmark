@@ -166,6 +166,9 @@ train_loader = data.train_loader
 valid_loader = data.valid_loader
 test_loader = data.test_loader
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
+
 INPUT_DIM = len(en_vocab)
 OUTPUT_DIM = len(spa_vocab)
 
@@ -180,7 +183,6 @@ DEC_DROPOUT = 0.5
 enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
 attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
 dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Seq2Seq(enc, dec, device).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
@@ -218,7 +220,7 @@ def evaluate(model: nn.Module,
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab)
+            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, SPA_EOS)
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
             loss = criterion(output, trg)
