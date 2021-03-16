@@ -90,6 +90,7 @@ def episode(src, trg, epsilon, teacher_forcing):
             Q_target[t, :] = reward + DISCOUNT * next_best_action_value
             Q_target[t, terminated_agents] = 0
             Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
+            Q_target[t, reading_agents * naughty_agents] = DISCOUNT * next_best_action_value[0, reading_agents]
             Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
             Q_target[t, naughty_agents] = Q_target[t, naughty_agents] - 10.0
 
@@ -144,7 +145,7 @@ def evaluate(loader):
 
 
 BATCH_SIZE = 64
-RNN_HID_DIM = 512
+RNN_HID_DIM = 256
 DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
@@ -161,7 +162,7 @@ valid_loader = data.valid_loader
 test_loader = data.test_loader
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = RQL(en_vocab, spa_vocab, RNN_HID_DIM, DROPOUT, NUM_RNN_LAYERS).to(device)
+model = nn.DataParallel(RQL(en_vocab, spa_vocab, RNN_HID_DIM, DROPOUT, NUM_RNN_LAYERS).to(device))
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
