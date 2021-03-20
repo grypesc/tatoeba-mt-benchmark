@@ -109,18 +109,20 @@ def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _polic
         w_k = (RO - ro_to_k) / (1 - ro_to_k)
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target, actions = episode(src, trg, epsilon, teacher_forcing)
+        no_eos_outputs = (word_outputs.max(2)[1] != trg) * (trg == SPA_EOS)
         total_actions += actions
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
         _policy_loss = policy_loss(Q_used, Q_target)
-        _mistranslation_loss = mistranslation_loss(word_outputs, trg)
-
+        _mistranslation_loss = mistranslation_loss_per_agent(word_outputs, trg)
+        _mistranslation_loss[no_eos_outputs.view(-1)] *= 5
+        _mistranslation_loss = torch.mean(_mistranslation_loss[trg != spa_vocab.stoi['<pad>']])
         _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
         _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
-        loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
 
+        loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimizer.step()
