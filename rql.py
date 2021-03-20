@@ -99,14 +99,14 @@ def episode(src, trg, epsilon, teacher_forcing):
         t += 1
 
 
-def train(epsilon, teacher_forcing):
+def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight ):
     model.train()
     epoch_loss = 0
-    loss_avg_decay = 0.99
-    _mistranslation_loss_weight, _policy_loss_weight = 0, 0
+
     total_actions = torch.zeros(3, dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
-        w_k = loss_avg_decay * (1 - loss_avg_decay ** (iteration - 1)) / (1 - loss_avg_decay ** iteration)
+        ro_to_k *= RO
+        w_k = (RO - ro_to_k) / (1 - ro_to_k)
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target, actions = episode(src, trg, epsilon, teacher_forcing)
         total_actions += actions
@@ -125,7 +125,7 @@ def train(epsilon, teacher_forcing):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimizer.step()
         epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(train_loader), total_actions.tolist()
+    return epoch_loss / len(train_loader), total_actions.tolist(), ro_to_k, _mistranslation_loss_weight, _policy_loss_weight
 
 
 def evaluate(loader):
@@ -150,6 +150,7 @@ DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
 MISTRANSLATION_LOSS_MULTIPLIER = 30
+RO = 0.99
 epsilon = 0.5
 teacher_forcing = 0.5
 
@@ -182,9 +183,11 @@ N_EPOCHS = 30
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 # profile = cProfile.Profile()
 # profile.enable()
+_mistranslation_loss_weight, _policy_loss_weight = 0, 0
+ro_to_k = 1
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_actions = train(epsilon, teacher_forcing)
+    train_loss, train_actions, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight  = train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight)
     val_loss, val_bleu, val_actions = evaluate(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -195,7 +198,7 @@ for epoch in range(N_EPOCHS):
 
     lr_scheduler.step()
     epsilon = max(0.1, epsilon - 0.05)
-    teacher_forcing = max(0.1, teacher_forcing - 0.05)
+    teacher_forcing = max(0.1, teacher_forcing - 0.00)
 
 test_loss, test_bleu, test_actions = evaluate(test_loader)
 print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
