@@ -15,21 +15,20 @@ random.seed(20)
 torch.manual_seed(20)
 
 
-def episode(src, trg, epsilon, teacher_forcing):
+def train_episode(src, trg, epsilon, teacher_forcing):
     batch_size = src.size()[1]
     src_seq_len = src.size()[0]
     trg_seq_len = trg.size()[0]
-    word_output = torch.tensor(([batch_size * [spa_vocab.stoi["<null>"]]]), device=device)
+    word_output = torch.full((1, batch_size), spa_vocab.stoi["<null>"], device=device)
     rnn_state = torch.zeros((NUM_RNN_LAYERS, batch_size, RNN_HID_DIM), device=device)
 
     word_outputs = torch.zeros((trg_seq_len, batch_size, len(spa_vocab)), device=device)
     Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
     Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
 
-    writing_agents = torch.full((batch_size,), False, device=device)
-    naughty_agents = torch.full((batch_size,), False, device=device)  # Want more input after input eos
-    terminated_agents = torch.full((batch_size,), False, device=device)
-    # terminated_on = torch.full((batch_size,), -1, device=device)
+    writing_agents = torch.full((1, batch_size), False, device=device)
+    naughty_agents = torch.full((1, batch_size,), False, device=device)  # Want more input after input eos
+    terminated_agents = torch.full((1, batch_size,), False, device=device)
 
     i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
     j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
@@ -38,18 +37,18 @@ def episode(src, trg, epsilon, teacher_forcing):
 
     while True:
         input = torch.gather(src, 0, i)
-        input[:, writing_agents] = EN_NULL
-        input[:, naughty_agents] = EN_PAD
+        input[writing_agents] = EN_NULL
+        input[naughty_agents] = EN_PAD
         output, rnn_state = model(input, word_output, rnn_state)
         _, word_output = torch.max(output[:, :, :-3], dim=2)
 
         if random.random() < epsilon:
-            action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)[0]
+            action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)
         else:
-            action = torch.max(output[:, :, -3:], 2)[1][0]
+            action = torch.max(output[:, :, -3:], 2)[1]
 
-        Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.unsqueeze(dim=1)).squeeze()
-        Q_used[t, terminated_agents] = 0
+        Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action)
+        Q_used[t, terminated_agents.squeeze(0)] = 0
 
         with torch.no_grad():
             reading_agents = ~terminated_agents * (action == 0)
@@ -61,7 +60,7 @@ def episode(src, trg, epsilon, teacher_forcing):
             actions_count[2] += bothing_agents.sum()
 
         agents_outputting = writing_agents + bothing_agents
-        word_outputs[j[:, agents_outputting], agents_outputting, :] = output[0, agents_outputting, :-3]
+        word_outputs[j[agents_outputting], agents_outputting.squeeze(), :] = output[0, agents_outputting.squeeze(), :-3]
 
         just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
         naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
@@ -70,29 +69,28 @@ def episode(src, trg, epsilon, teacher_forcing):
         j = j + agents_outputting
 
         terminated_agents = terminated_agents + just_terminated_agents
-        # terminated_on[just_terminated_agents] = t
 
         i[i >= src_seq_len] = src_seq_len - 1
         j[j >= trg_seq_len] = trg_seq_len - 1
 
         if random.random() < teacher_forcing:
             word_output = torch.gather(trg, 0, old_j)
-        word_output[:, reading_agents] = SPA_NULL
+        word_output[reading_agents] = SPA_NULL
 
         with torch.no_grad():
             _input = torch.gather(src, 0, i)
-            _input[:, writing_agents] = EN_NULL
-            _input[:, naughty_agents] = EN_PAD
+            _input[writing_agents] = EN_NULL
+            _input[naughty_agents] = EN_PAD
             _output, _ = model(_input, word_output, rnn_state)
             next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
-            reward = (-1) * mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :])
+            reward = (-1) * mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
             Q_target[t, :] = reward + DISCOUNT * next_best_action_value
-            Q_target[t, terminated_agents] = 0
-            Q_target[t, reading_agents] = next_best_action_value[0, reading_agents]
-            Q_target[t, reading_agents * naughty_agents] = DISCOUNT * next_best_action_value[0, reading_agents * naughty_agents]
-            Q_target[t, just_terminated_agents] = reward[just_terminated_agents]
-            Q_target[t, naughty_agents] = Q_target[t, naughty_agents] - 10.0
+            Q_target[t, terminated_agents.squeeze()] = 0
+            Q_target[t, reading_agents.squeeze()] = next_best_action_value[reading_agents]
+            Q_target[t, (reading_agents * naughty_agents).squeeze()] = DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
+            Q_target[t, just_terminated_agents.squeeze()] = reward[just_terminated_agents]
+            Q_target[t, naughty_agents.squeeze()] -= 10.0
 
             if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                 return word_outputs, Q_used, Q_target, actions_count
@@ -108,7 +106,7 @@ def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _polic
         ro_to_k *= RO
         w_k = (RO - ro_to_k) / (1 - ro_to_k)
         src, trg = src.to(device), trg.to(device)
-        word_outputs, Q_used, Q_target, actions = episode(src, trg, epsilon, teacher_forcing)
+        word_outputs, Q_used, Q_target, actions = train_episode(src, trg, epsilon, teacher_forcing)
         no_eos_outputs = (word_outputs.max(2)[1] != trg) * (trg == SPA_EOS)
         total_actions += actions
         optimizer.zero_grad()
@@ -117,7 +115,7 @@ def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _polic
 
         _policy_loss = policy_loss(Q_used, Q_target)
         _mistranslation_loss = mistranslation_loss_per_agent(word_outputs, trg)
-        _mistranslation_loss[no_eos_outputs.view(-1)] *= 5
+        _mistranslation_loss[no_eos_outputs.view(-1)] *= NO_EOS_LOSS_MULTIPLIER
         _mistranslation_loss = torch.mean(_mistranslation_loss[trg != spa_vocab.stoi['<pad>']])
         _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
         _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
@@ -137,7 +135,7 @@ def evaluate(loader):
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.to(device), trg.to(device)
-            word_outputs, _, _, actions = episode(src, trg, 0, 0)
+            word_outputs, _, _, actions = train_episode(src, trg, 0, 0)
             total_actions += actions
             epoch_bleu += bleu(word_outputs, trg, spa_vocab, SPA_EOS)
             word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
@@ -152,6 +150,7 @@ DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
 MISTRANSLATION_LOSS_MULTIPLIER = 30
+NO_EOS_LOSS_MULTIPLIER = 1
 RO = 0.99
 epsilon = 0.5
 teacher_forcing = 0.5
