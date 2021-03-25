@@ -47,8 +47,8 @@ def train_episode(src, trg, epsilon, teacher_forcing):
         else:
             action = torch.max(output[:, :, -3:], 2)[1]
 
-        Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action)
-        Q_used[t, terminated_agents.squeeze(0)] = 0
+        Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.T).squeeze_()
+        Q_used[t, terminated_agents.squeeze()] = 0
 
         with torch.no_grad():
             reading_agents = ~terminated_agents * (action == 0)
