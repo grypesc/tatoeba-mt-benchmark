@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class RQL(nn.Module):
+class Net(nn.Module):
     def __init__(self,
                  src_vocab,
                  trg_vocab,
@@ -27,7 +27,7 @@ class RQL(nn.Module):
         return outputs, rnn_state
 
 
-class RQL1(nn.Module):
+class Net1(nn.Module):
     def __init__(self, src_vocab, trg_vocab, rnn_hid_dim,
                  dropout, num_rnn_layers, linear_dim):
 
@@ -53,7 +53,7 @@ class RQL1(nn.Module):
         return outputs, rnn_state
 
 
-class RQL2(nn.Module):
+class Net2(nn.Module):
     def __init__(self, src_vocab, trg_vocab, rnn_hid_dim, dropout,
                  num_rnn_layers, linear1_dim, linear2_dim):
 
