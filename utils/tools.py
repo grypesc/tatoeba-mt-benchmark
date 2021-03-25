@@ -17,16 +17,24 @@ def int_to_one_hot(index: int, length, device):
     return t
 
 
-def bleu(output, target, vocab, eos):
-    _, output_indices = torch.max(output, 2)
-    output_indices = output_indices.transpose(1, 0)
+def bleu(output, target, vocab, eos, device):
+    _, output_words = torch.max(output, 2)
+    batch_size = output_words.size()[1]
+    eos_vector = torch.full((1, batch_size), eos[0], device=device)
+
+    output_words = torch.cat((output_words, eos_vector), dim=0)
+    output_is_eos = torch.eq(output_words, eos)
+    output_eos = output_is_eos.max(0)[1]
+    output_words = output_words.transpose(1, 0)
+
     trg_is_eos = torch.eq(target, eos)
     trg_eos = trg_is_eos.max(0)[1]
+
     target = target.transpose(1, 0)
     target = [x[:trg_eos[i]] for i, x in enumerate(target)]
     target_str = [[[vocab.itos[x] for x in y]] for y in target]
-    output_indices = [x[:trg_eos[i]] for i, x in enumerate(output_indices)]
-    output_str = [[vocab.itos[x] for x in y] for y in output_indices]
+    output = [x[:output_eos[i]] for i, x in enumerate(output_words)]
+    output_str = [[vocab.itos[x] for x in y] for y in output]
     return bleu_score(output_str, target_str)
 
 

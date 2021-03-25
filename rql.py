@@ -23,9 +23,9 @@ class RQL(nn.Module):
         self.device = device
 
     def forward(self, src, trg, epsilon, teacher_forcing):
-        if self.train:
+        if self.training:
             return self.training_episode(src, trg, epsilon, teacher_forcing)
-        return self.training_episode(src, trg, 0, 0)
+        return self.testing_episode(src, 64)
 
     def training_episode(self, src, trg, epsilon, teacher_forcing):
         batch_size = src.size()[1]
@@ -108,6 +108,52 @@ class RQL(nn.Module):
                     return word_outputs, Q_used, Q_target, actions_count
             t += 1
 
+    def testing_episode(self, src, max_time):
+        batch_size = src.size()[1]
+        src_seq_len = src.size()[0]
+        word_output = torch.full((1, batch_size), spa_vocab.stoi["<null>"], device=device)
+        rnn_state = torch.zeros((NUM_RNN_LAYERS, batch_size, RNN_HID_DIM), device=device)
+
+        word_outputs = torch.zeros((max_time + 1, batch_size, len(spa_vocab)), device=device)
+
+        writing_agents = torch.full((1, batch_size), False, device=device)
+        naughty_agents = torch.full((1, batch_size,), False, device=device)  # Want more input after input eos
+
+        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
+        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
+        t = 0  # time
+        actions_count = torch.zeros(3, dtype=torch.long, device=device)
+
+        while True:
+            input = torch.gather(src, 0, i)
+            input[writing_agents] = EN_NULL
+            input[naughty_agents] = EN_PAD
+            output, rnn_state = self.net(input, word_output, rnn_state)
+            _, word_output = torch.max(output[:, :, :-3], dim=2)
+            action = torch.max(output[:, :, -3:], 2)[1]
+
+            reading_agents = (action == 0)
+            writing_agents = (action == 1)
+            bothing_agents = (action == 2)
+
+            actions_count[0] += reading_agents.sum()
+            actions_count[1] += writing_agents.sum()
+            actions_count[2] += bothing_agents.sum()
+
+            agents_outputting = writing_agents + bothing_agents
+            word_outputs[j[agents_outputting], agents_outputting.squeeze(), :] = output[0, agents_outputting.squeeze(), :-3]
+
+            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+            i = i + ~naughty_agents * (reading_agents + bothing_agents)
+            j = j + agents_outputting
+
+            i[i >= src_seq_len] = src_seq_len - 1
+            word_output[reading_agents] = SPA_NULL
+
+            if t >= max_time:
+                return word_outputs, None, None, actions_count
+            t += 1
+
 
 def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight ):
     model.train()
@@ -149,20 +195,21 @@ def evaluate(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, actions = model(src, trg, 0, 0)
             total_actions += actions
-            epoch_bleu += bleu(word_outputs, trg, spa_vocab, SPA_EOS)
-            word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
+            epoch_bleu += bleu(word_outputs, trg, spa_vocab, SPA_EOS, device)
+            word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
+            word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            epoch_loss += mistranslation_loss(word_outputs, trg).item()
+            epoch_loss += mistranslation_loss(word_outputs_clipped, trg).item()
     return epoch_loss / len(loader), epoch_bleu / len(loader), total_actions.tolist()
 
 
 BATCH_SIZE = 64
-RNN_HID_DIM = 1024
+RNN_HID_DIM = 256
 DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
 MISTRANSLATION_LOSS_MULTIPLIER = 30
-NO_EOS_LOSS_MULTIPLIER = 1
+NO_EOS_LOSS_MULTIPLIER = 1.0
 RO = 0.99
 epsilon = 0.5
 teacher_forcing = 0.5
@@ -177,7 +224,7 @@ test_loader = data.test_loader
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 net = Net(en_vocab, spa_vocab, RNN_HID_DIM, DROPOUT, NUM_RNN_LAYERS).to(device)
-model = RQL(net, device)
+model = RQL(net, device).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)

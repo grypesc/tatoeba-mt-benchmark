@@ -128,21 +128,26 @@ class Seq2Seq(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
                  decoder: nn.Module,
-                 device: torch.device):
-        super().__init__()
+                 device: torch.device,
+                 max_len: int):
 
+        super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.device = device
+        self.max_len = max_len
 
     def forward(self,
                 src: Tensor,
                 trg: Tensor,
                 teacher_forcing_ratio: float = 0.5) -> Tensor:
         batch_size = src.shape[1]
-        max_len = trg.shape[0]
-        trg_vocab_size = self.decoder.output_dim
 
+        max_len = self.max_len
+        if self.training:
+            max_len = trg.shape[0]
+
+        trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
         encoder_outputs, hidden = self.encoder(src)
 
@@ -183,7 +188,7 @@ DEC_DROPOUT = 0.5
 enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
 attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
 dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
-model = Seq2Seq(enc, dec, device).to(device)
+model = Seq2Seq(enc, dec, device, 64).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
@@ -220,15 +225,16 @@ def evaluate(model: nn.Module,
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, SPA_EOS)
-            output = output[1:].view(-1, output.shape[-1])
+            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, SPA_EOS, device)
+            output_clipped = output[:trg.size()[0], :, :]
+            output_clipped = output_clipped[1:].view(-1, output_clipped.shape[-1])
             trg = trg[1:].view(-1)
-            loss = criterion(output, trg)
+            loss = criterion(output_clipped, trg)
             epoch_loss += loss.item()
     return epoch_loss / len(iterator), epoch_bleu / len(iterator)
 
 
-N_EPOCHS = 20
+N_EPOCHS = 30
 CLIP = 1
 
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
