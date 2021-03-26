@@ -164,36 +164,6 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-data = DataPipeline(batch_size=128)
-en_vocab = data.en_vocab
-spa_vocab = data.spa_vocab
-train_loader = data.train_loader
-valid_loader = data.valid_loader
-test_loader = data.test_loader
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
-
-INPUT_DIM = len(en_vocab)
-OUTPUT_DIM = len(spa_vocab)
-
-ENC_EMB_DIM = en_vocab.vectors.size()[1]
-DEC_EMB_DIM = 64
-ENC_HID_DIM = 128
-DEC_HID_DIM = 128
-ATTN_DIM = 32
-ENC_DROPOUT = 0.5
-DEC_DROPOUT = 0.5
-
-enc = Encoder(INPUT_DIM, ENC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
-attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
-dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
-model = Seq2Seq(enc, dec, device, 64).to(device)
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
-
-
 def train(model: nn.Module,
           iterator: torch.utils.data.DataLoader,
           optimizer: optim.Optimizer,
@@ -234,23 +204,54 @@ def evaluate(model: nn.Module,
     return epoch_loss / len(iterator), epoch_bleu / len(iterator)
 
 
-N_EPOCHS = 30
-CLIP = 1
+if __name__ == '__main__':
 
-print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
+    BATCH_SIZE = 128
+    DEC_EMB_DIM = 64
+    ENC_HID_DIM = 128
+    DEC_HID_DIM = 128
+    ATTN_DIM = 32
+    ENC_DROPOUT = 0.5
+    DEC_DROPOUT = 0.5
+    N_EPOCHS = 30
+    CLIP = 1
+    TEST_SEQUENCE_MAX_LENGTH = 64
 
-for epoch in range(N_EPOCHS):
-    start_time = time.time()
-    train_loss = train(model, train_loader, optimizer, criterion, CLIP)
-    valid_loss, valid_bleu = evaluate(model, valid_loader, criterion)
+    data = DataPipeline(batch_size=BATCH_SIZE)
+    en_vocab = data.en_vocab
+    spa_vocab = data.spa_vocab
+    train_loader = data.train_loader
+    valid_loader = data.valid_loader
+    test_loader = data.test_loader
 
-    end_time = time.time()
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
 
-    print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-    print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-    print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(100*valid_bleu, 2)}')
+    INPUT_DIM = len(en_vocab)
+    OUTPUT_DIM = len(spa_vocab)
 
-test_loss, test_bleu = evaluate(model, test_loader, criterion)
+    enc = Encoder(INPUT_DIM, en_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
+    attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
+    dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
+    model = Seq2Seq(enc, dec, device, TEST_SEQUENCE_MAX_LENGTH).to(device)
 
-print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(100*test_bleu, 2)}')
+    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
+
+    print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
+
+    for epoch in range(N_EPOCHS):
+        start_time = time.time()
+        train_loss = train(model, train_loader, optimizer, criterion, CLIP)
+        valid_loss, valid_bleu = evaluate(model, valid_loader, criterion)
+
+        end_time = time.time()
+        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+
+        print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+        print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
+        print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(100*valid_bleu, 2)}')
+
+    test_loss, test_bleu = evaluate(model, test_loader, criterion)
+
+    print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(100*test_bleu, 2)}')
