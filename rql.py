@@ -16,18 +16,24 @@ torch.manual_seed(20)
 
 
 class RQL(nn.Module):
+    """
+    This class implements RQL algorithm presented in the paper. Given batch size of n, it creates n partially observable
+    training or testing environments in which n agents operate in order to transform source sequences into the target ones.
+    """
 
-    def __init__(self, net, device):
+    def __init__(self, net, device, testing_episode_time):
         super().__init__()
         self.net = net
         self.device = device
+        self.testing_episode_time = testing_episode_time
 
     def forward(self, src, trg, epsilon, teacher_forcing):
         if self.training:
-            return self.training_episode(src, trg, epsilon, teacher_forcing)
-        return self.testing_episode(src, 64)
+            return self._training_episode(src, trg, epsilon, teacher_forcing)
+        return self._testing_episode(src)
 
-    def training_episode(self, src, trg, epsilon, teacher_forcing):
+    def _training_episode(self, src, trg, epsilon, teacher_forcing):
+        device = self.device
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
@@ -102,22 +108,24 @@ class RQL(nn.Module):
                 Q_target[t, reading_agents.squeeze()] = next_best_action_value[reading_agents]
                 Q_target[t, (reading_agents * naughty_agents).squeeze()] = DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
                 Q_target[t, just_terminated_agents.squeeze()] = reward[just_terminated_agents]
-                Q_target[t, naughty_agents.squeeze()] -= 10.0
+                Q_target[t, naughty_agents.squeeze()] -= 5.0
 
                 if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                     return word_outputs, Q_used, Q_target, actions_count
             t += 1
 
-    def testing_episode(self, src, max_time):
+    def _testing_episode(self, src):
+        device = self.device
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         word_output = torch.full((1, batch_size), spa_vocab.stoi["<null>"], device=device)
         rnn_state = torch.zeros((NUM_RNN_LAYERS, batch_size, RNN_HID_DIM), device=device)
 
-        word_outputs = torch.zeros((max_time + 1, batch_size, len(spa_vocab)), device=device)
+        word_outputs = torch.zeros((self.testing_episode_time, batch_size, len(spa_vocab)), device=device)
 
         writing_agents = torch.full((1, batch_size), False, device=device)
         naughty_agents = torch.full((1, batch_size,), False, device=device)  # Want more input after input eos
+        after_eos_agents = torch.full((1, batch_size,), False, device=device)  # Already outputted EOS
 
         i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
         j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
@@ -136,13 +144,14 @@ class RQL(nn.Module):
             writing_agents = (action == 1)
             bothing_agents = (action == 2)
 
-            actions_count[0] += reading_agents.sum()
-            actions_count[1] += writing_agents.sum()
-            actions_count[2] += bothing_agents.sum()
+            actions_count[0] += (~after_eos_agents * reading_agents).sum()
+            actions_count[1] += (~after_eos_agents * writing_agents).sum()
+            actions_count[2] += (~after_eos_agents * bothing_agents).sum()
 
             agents_outputting = writing_agents + bothing_agents
             word_outputs[j[agents_outputting], agents_outputting.squeeze(), :] = output[0, agents_outputting.squeeze(), :-3]
 
+            after_eos_agents += (word_output == SPA_EOS)
             naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
             i = i + ~naughty_agents * (reading_agents + bothing_agents)
             j = j + agents_outputting
@@ -150,12 +159,12 @@ class RQL(nn.Module):
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = SPA_NULL
 
-            if t >= max_time:
+            if t >= self.testing_episode_time - 1:
                 return word_outputs, None, None, actions_count
             t += 1
 
 
-def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight ):
+def train_epoch(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight ):
     model.train()
     epoch_loss = 0
 
@@ -186,7 +195,7 @@ def train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _polic
     return epoch_loss / len(train_loader), total_actions.tolist(), ro_to_k, _mistranslation_loss_weight, _policy_loss_weight
 
 
-def evaluate(loader):
+def evaluate_epoch(loader):
     model.eval()
     epoch_loss, epoch_bleu = 0, 0
     total_actions = torch.zeros(3, dtype=torch.long, device=device)
@@ -204,16 +213,16 @@ def evaluate(loader):
 
 
 BATCH_SIZE = 64
+N_EPOCHS = 30
 RNN_HID_DIM = 256
 DROPOUT = 0.0
 NUM_RNN_LAYERS = 1
 DISCOUNT = 0.99
-MISTRANSLATION_LOSS_MULTIPLIER = 30
+MISTRANSLATION_LOSS_MULTIPLIER = 10
 NO_EOS_LOSS_MULTIPLIER = 1.0
 RO = 0.99
 epsilon = 0.5
 teacher_forcing = 0.5
-
 
 data = DataPipelineRQL(batch_size=BATCH_SIZE)
 en_vocab = data.en_vocab
@@ -224,7 +233,7 @@ test_loader = data.test_loader
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 net = Net(en_vocab, spa_vocab, RNN_HID_DIM, DROPOUT, NUM_RNN_LAYERS).to(device)
-model = RQL(net, device).to(device)
+model = RQL(net, device, 64).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
@@ -239,17 +248,14 @@ EN_PAD = torch.tensor([en_vocab.stoi['<pad>']]).to(device)
 SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
 EN_EOS = torch.tensor([en_vocab.stoi['<eos>']]).to(device)
 
-N_EPOCHS = 30
-
 print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
-# profile = cProfile.Profile()
-# profile.enable()
+
 _mistranslation_loss_weight, _policy_loss_weight = 0, 0
 ro_to_k = 1
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_actions, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight  = train(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight)
-    val_loss, val_bleu, val_actions = evaluate(valid_loader)
+    train_loss, train_actions, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight = train_epoch(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight)
+    val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
@@ -261,8 +267,6 @@ for epoch in range(N_EPOCHS):
     epsilon = max(0.1, epsilon - 0.05)
     teacher_forcing = max(0.1, teacher_forcing - 0.00)
 
-test_loss, test_bleu, test_actions = evaluate(test_loader)
+test_loss, test_bleu, test_actions = evaluate_epoch(test_loader)
 print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
 
-# profile.disable()
-# profile.print_stats(sort='time')
