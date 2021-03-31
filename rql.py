@@ -65,8 +65,8 @@ class RQL(nn.Module):
             else:
                 action = torch.max(output[:, :, -3:], 2)[1]
 
-            Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.T).squeeze_()
-            Q_used[t, terminated_agents.squeeze()] = 0
+            Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.T).squeeze_(1)
+            Q_used[t, terminated_agents.squeeze(0)] = 0
 
             with torch.no_grad():
                 reading_agents = ~terminated_agents * (action == 0)
@@ -78,10 +78,10 @@ class RQL(nn.Module):
                 actions_count[2] += bothing_agents.sum()
 
             agents_outputting = writing_agents + bothing_agents
-            word_outputs[j[agents_outputting], agents_outputting.squeeze(), :] = output[0, agents_outputting.squeeze(), :-3]
+            word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-3]
 
-            just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_()
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+            just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == SPA_EOS).squeeze_(0)
+            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_(0)
             i = i + ~naughty_agents * (reading_agents + bothing_agents)
             old_j = j
             j = j + agents_outputting
@@ -104,11 +104,11 @@ class RQL(nn.Module):
 
                 reward = (-1) * mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
                 Q_target[t, :] = reward + DISCOUNT * next_best_action_value
-                Q_target[t, terminated_agents.squeeze()] = 0
-                Q_target[t, reading_agents.squeeze()] = next_best_action_value[reading_agents]
-                Q_target[t, (reading_agents * naughty_agents).squeeze()] = DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
-                Q_target[t, just_terminated_agents.squeeze()] = reward[just_terminated_agents]
-                Q_target[t, naughty_agents.squeeze()] -= 5.0
+                Q_target[t, terminated_agents.squeeze(0)] = 0
+                Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
+                Q_target[t, (reading_agents * naughty_agents).squeeze(0)] = DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
+                Q_target[t, just_terminated_agents.squeeze(0)] = reward[just_terminated_agents]
+                Q_target[t, naughty_agents.squeeze(0)] -= 5.0
 
                 if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                     return word_outputs, Q_used, Q_target, actions_count
@@ -149,10 +149,10 @@ class RQL(nn.Module):
             actions_count[2] += (~after_eos_agents * bothing_agents).sum()
 
             agents_outputting = writing_agents + bothing_agents
-            word_outputs[j[agents_outputting], agents_outputting.squeeze(), :] = output[0, agents_outputting.squeeze(), :-3]
+            word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-3]
 
             after_eos_agents += (word_output == SPA_EOS)
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_()
+            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == EN_EOS).squeeze_(0)
             i = i + ~naughty_agents * (reading_agents + bothing_agents)
             j = j + agents_outputting
 
