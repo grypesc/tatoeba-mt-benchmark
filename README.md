@@ -1,10 +1,9 @@
 # atmt
 Approaches to machine translation  
-Different and new machine translation algorithms tested on tatoeba english to spanish dataset. Currently implemented:
-* enc_dec_attn_no_embeddings.py - RNN encoder-decoder with attention.
-* enc_dec_attn.py - RNN encoder-decoder with attention and FastText embeddings.
+Machine translation algorithms tested on tatoeba english to spanish dataset. Dataset is tokenized
+with Spacy tokenizer by DataPipeline object and tokens are transformed into FastText embeddings. Currently implemented:
+* enc_dec_attn.py - RNN encoder-decoder with attention.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
-* rql_v2.py - Ditto but different agent termination conditions.
 
 Setup:
 ```bash
