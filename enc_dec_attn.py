@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
-from utils.data_pipeline_rql import DataPipelineRQL
 from utils.tools import epoch_time, bleu
 
 random.seed(20)
@@ -208,17 +207,16 @@ def evaluate(model: nn.Module,
 if __name__ == '__main__':
 
     BATCH_SIZE = 128
-    DEC_EMB_DIM = 64
+    N_EPOCHS = 30
     ENC_HID_DIM = 128
     DEC_HID_DIM = 128
     ATTN_DIM = 32
     ENC_DROPOUT = 0.5
     DEC_DROPOUT = 0.5
-    N_EPOCHS = 30
     CLIP = 1
     TEST_SEQUENCE_MAX_LENGTH = 64
 
-    data = DataPipelineRQL(batch_size=BATCH_SIZE)
+    data = DataPipeline(batch_size=BATCH_SIZE)
     en_vocab = data.en_vocab
     spa_vocab = data.spa_vocab
     train_loader = data.train_loader

@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.data_pipeline_rql import DataPipelineRQL
+from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, bleu, actions_ratio
 from utils.rql_nets import Net, Net1, Net2
 
@@ -227,7 +227,7 @@ if __name__ == '__main__':
     epsilon = 0.5
     teacher_forcing = 0.5
 
-    data = DataPipelineRQL(batch_size=BATCH_SIZE)
+    data = DataPipeline(batch_size=BATCH_SIZE)
     en_vocab = data.en_vocab
     spa_vocab = data.spa_vocab
     train_loader = data.train_loader

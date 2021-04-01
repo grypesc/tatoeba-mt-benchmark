@@ -8,8 +8,8 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 
-class DataPipeline:  # TODO: base class maybe?
-    """Provides vocabularies and data loaders for encoder decoder models from english to spanish sentences. Uses
+class DataPipeline:
+    """Provides vocabularies and data loaders from english to spanish sentences. Uses
     pretrained FastText embeddings"""
 
     def __init__(self, batch_size=64):
@@ -34,13 +34,13 @@ class DataPipeline:  # TODO: base class maybe?
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'], vectors=FastText(language='en', max_vectors=1000_000))
+        vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='en', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-        vocab.vectors[vocab["<pad>"]][0] = 1
-        vocab.vectors[vocab["<bos>"]][1] = 1
-        vocab.vectors[vocab["<eos>"]][2] = 1
+        vocab.vectors[vocab['<null>']][0] = 1
+        vocab.vectors[vocab['<eos>']][1] = 1
+        vocab.vectors[vocab['<pad>']][2] = 1
         return vocab
 
     def build_output_vocab(self, filepath, tokenizer):
@@ -48,7 +48,14 @@ class DataPipeline:  # TODO: base class maybe?
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        return Vocab(counter, specials=['<unk>', '<pad>', '<bos>', '<eos>'])
+            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='es', max_vectors=1000_000))
+        zero_vec = torch.zeros(vocab.vectors.size()[0])
+        zero_vec = torch.unsqueeze(zero_vec, dim=1)
+        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
+        vocab.vectors[vocab['<null>']][0] = 1
+        vocab.vectors[vocab['<eos>']][1] = 1
+        vocab.vectors[vocab['<pad>']][2] = 1
+        return vocab
 
     def tensor_from_files(self, filepaths):
         raw_en_iter = iter(io.open(filepaths[0], encoding="utf8"))
@@ -65,8 +72,8 @@ class DataPipeline:  # TODO: base class maybe?
     def generate_batch(self, data_batch):
         en_batch, spa_batch, = [], []
         for (en_item, spa__item) in data_batch:
-            en_batch.append(torch.cat([torch.tensor([self.en_vocab['<bos>']]), en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
-            spa_batch.append(torch.cat([torch.tensor([self.spa_vocab['<bos>']]), spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
+            en_batch.append(torch.cat([en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
+            spa_batch.append(torch.cat([spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
         en_batch = pad_sequence(en_batch, padding_value=self.en_vocab['<pad>'])
         spa_batch = pad_sequence(spa_batch, padding_value=self.spa_vocab['<pad>'])
         return en_batch, spa_batch
