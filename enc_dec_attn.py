@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
+from utils.data_pipeline_rql import DataPipelineRQL
 from utils.tools import epoch_time, bleu
 
 random.seed(20)
@@ -86,7 +87,7 @@ class Decoder(nn.Module):
         self.dropout = dropout
         self.attention = attention
 
-        self.embedding = nn.Embedding(output_dim, emb_dim)
+        self.embedding = nn.Embedding(output_dim, emb_dim).from_pretrained(spa_vocab.vectors, freeze=True)
         self.rnn = nn.GRU((enc_hid_dim * 2) + emb_dim, dec_hid_dim)
         self.out = nn.Linear(self.attention.attn_in + emb_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
@@ -195,7 +196,7 @@ def evaluate(model: nn.Module,
         for _, (src, trg) in enumerate(iterator):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, SPA_EOS, device)
+            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, device)
             output_clipped = output[:trg.size()[0], :, :]
             output_clipped = output_clipped[1:].view(-1, output_clipped.shape[-1])
             trg = trg[1:].view(-1)
@@ -217,7 +218,7 @@ if __name__ == '__main__':
     CLIP = 1
     TEST_SEQUENCE_MAX_LENGTH = 64
 
-    data = DataPipeline(batch_size=BATCH_SIZE)
+    data = DataPipelineRQL(batch_size=BATCH_SIZE)
     en_vocab = data.en_vocab
     spa_vocab = data.spa_vocab
     train_loader = data.train_loader
@@ -225,14 +226,13 @@ if __name__ == '__main__':
     test_loader = data.test_loader
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    SPA_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
 
     INPUT_DIM = len(en_vocab)
     OUTPUT_DIM = len(spa_vocab)
 
     enc = Encoder(INPUT_DIM, en_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
     attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
-    dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
+    dec = Decoder(OUTPUT_DIM, spa_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
     model = Seq2Seq(enc, dec, device, TEST_SEQUENCE_MAX_LENGTH).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)

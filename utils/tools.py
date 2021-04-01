@@ -17,10 +17,11 @@ def int_to_one_hot(index: int, length, device):
     return t
 
 
-def bleu(output, target, vocab, eos, device):
+def bleu(output, target, vocab, device):
     _, output_words = torch.max(output, 2)
     batch_size = output_words.size()[1]
-    eos_vector = torch.full((1, batch_size), eos[0], device=device)
+    eos = torch.tensor(vocab.stoi['<eos>']).to(device)
+    eos_vector = torch.full((1, batch_size), eos, device=device)
 
     output_words = torch.cat((output_words, eos_vector), dim=0)
     output_is_eos = torch.eq(output_words, eos)
