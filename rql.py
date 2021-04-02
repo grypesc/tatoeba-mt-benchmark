@@ -227,7 +227,7 @@ if __name__ == '__main__':
     epsilon = 0.5
     teacher_forcing = 0.5
 
-    data = DataPipeline(batch_size=BATCH_SIZE)
+    data = DataPipeline(batch_size=BATCH_SIZE, null_replaces_bos=True)
     en_vocab = data.en_vocab
     spa_vocab = data.spa_vocab
     train_loader = data.train_loader

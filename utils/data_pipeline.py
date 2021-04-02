@@ -10,9 +10,13 @@ from torch.utils.data import DataLoader
 
 class DataPipeline:
     """Provides vocabularies and data loaders from english to spanish sentences. Uses
-    pretrained FastText embeddings"""
+    pretrained FastText embeddings. Can either use bos token which is always the first one in src and trg
+    sequences or use null token, which is useful for rql"""
 
-    def __init__(self, batch_size=64):
+    def __init__(self, batch_size=64, null_replaces_bos=False):
+
+        self.bos_or_null_token = "<null>" if null_replaces_bos else "<bos>"
+
         train_filepaths = ["data/train_eng.txt", "data/train_spa.txt"]
         val_filepaths = ["data/validation_eng.txt", "data/validation_spa.txt"]
         test_filepaths = ["data/test_eng.txt", "data/test_spa.txt"]
@@ -25,20 +29,21 @@ class DataPipeline:
         val_data = self.tensor_from_files(val_filepaths)
         test_data = self.tensor_from_files(test_filepaths)
 
-        self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=0)
-        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=0)
-        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=self.generate_batch, num_workers=0)
+        generate_batch = self.generate_null_batch if null_replaces_bos else self.generate_bos_batch
+        self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
+        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
+        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
 
     def build_input_vocab(self, filepath, tokenizer):
         counter = Counter()
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='en', max_vectors=1000_000))
+        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], vectors=FastText(language='en', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-        vocab.vectors[vocab['<null>']][0] = 1
+        vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
         vocab.vectors[vocab['<eos>']][1] = 1
         vocab.vectors[vocab['<pad>']][2] = 1
         return vocab
@@ -48,11 +53,11 @@ class DataPipeline:
         with io.open(filepath, encoding="utf8") as f:
             for string_ in f:
                 counter.update(tokenizer(string_))
-            vocab = Vocab(counter, specials=['<unk>', '<null>', '<eos>', '<pad>'], vectors=FastText(language='es', max_vectors=1000_000))
+            vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>', '<eos>'], vectors=FastText(language='es', max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-        vocab.vectors[vocab['<null>']][0] = 1
+        vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
         vocab.vectors[vocab['<eos>']][1] = 1
         vocab.vectors[vocab['<pad>']][2] = 1
         return vocab
@@ -69,11 +74,20 @@ class DataPipeline:
             data.append((en_tensor_, spa_tensor_))
         return data
 
-    def generate_batch(self, data_batch):
+    def generate_null_batch(self, data_batch):
         en_batch, spa_batch, = [], []
         for (en_item, spa__item) in data_batch:
             en_batch.append(torch.cat([en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
             spa_batch.append(torch.cat([spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
+        en_batch = pad_sequence(en_batch, padding_value=self.en_vocab['<pad>'])
+        spa_batch = pad_sequence(spa_batch, padding_value=self.spa_vocab['<pad>'])
+        return en_batch, spa_batch
+
+    def generate_bos_batch(self, data_batch):
+        en_batch, spa_batch, = [], []
+        for (en_item, spa__item) in data_batch:
+            en_batch.append(torch.cat([torch.tensor([self.en_vocab['<bos>']]), en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
+            spa_batch.append(torch.cat([torch.tensor([self.spa_vocab['<bos>']]), spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
         en_batch = pad_sequence(en_batch, padding_value=self.en_vocab['<pad>'])
         spa_batch = pad_sequence(spa_batch, padding_value=self.spa_vocab['<pad>'])
         return en_batch, spa_batch
