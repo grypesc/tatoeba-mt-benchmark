@@ -211,8 +211,8 @@ if __name__ == '__main__':
     ENC_HID_DIM = 128
     DEC_HID_DIM = 128
     ATTN_DIM = 32
-    ENC_DROPOUT = 0.5
-    DEC_DROPOUT = 0.5
+    ENC_DROPOUT = 0.0  # This comes after pretrained embedding layers so in theory it's better not to increase it
+    DEC_DROPOUT = 0.0
     CLIP = 1
     TEST_SEQUENCE_MAX_LENGTH = 64
 
@@ -247,9 +247,9 @@ if __name__ == '__main__':
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-        print(f'\tVal. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f} | Val. Bleu: {round(100*valid_bleu, 2)}')
+        print(f'\tTrain loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
+        print(f'\tValid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}')
 
     test_loss, test_bleu = evaluate(model, test_loader, criterion)
 
-    print(f'\tTest Loss: {test_loss:.3f} | Test PPL: {math.exp(test_loss):7.3f} | Test Bleu: {round(100*test_bleu, 2)}')
+    print(f'\tTest loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')

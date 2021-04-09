@@ -189,7 +189,7 @@ def train_epoch(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, 
 
         loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
         epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(train_loader), total_actions.squeeze(1).tolist(), ro_to_k, _mistranslation_loss_weight, _policy_loss_weight
@@ -222,8 +222,12 @@ if __name__ == '__main__':
     DISCOUNT = 0.99
     MISTRANSLATION_LOSS_MULTIPLIER = 10
     NO_EOS_LOSS_MULTIPLIER = 1.0
+    CLIP = 10
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 64
+    EPSILON_DECAY = 0.05
+    TEACHER_FORCING_DECAY = 0.00
+
     epsilon = 0.5
     teacher_forcing = 0.5
 
@@ -267,8 +271,8 @@ if __name__ == '__main__':
         print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
         lr_scheduler.step()
-        epsilon = max(0.1, epsilon - 0.05)
-        teacher_forcing = max(0.1, teacher_forcing - 0.00)
+        epsilon = max(0.05, epsilon - EPSILON_DECAY)
+        teacher_forcing = max(0.05, teacher_forcing - TEACHER_FORCING_DECAY)
 
     test_loss, test_bleu, test_actions = evaluate_epoch(test_loader)
     print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
