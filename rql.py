@@ -9,6 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, bleu, actions_ratio
 from utils.rql_nets import Net, Net1, Net2
+from criterions.rql_criterion import RQLCriterion
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -164,39 +165,31 @@ class RQL(nn.Module):
             t += 1
 
 
-def train_epoch(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight ):
+def train_epoch(epsilon, teacher_forcing):
     model.train()
+    rql_criterion.train()
     epoch_loss = 0
 
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
-        ro_to_k *= RO
-        w_k = (RO - ro_to_k) / (1 - ro_to_k)
         src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
-        no_eos_outputs = (word_outputs.max(2)[1] != trg) * (trg == OUTPUT_EOS)
         total_actions += actions.cumsum(dim=1)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        _policy_loss = policy_loss(Q_used, Q_target)
-        _mistranslation_loss = mistranslation_loss_per_agent(word_outputs, trg)
-        _mistranslation_loss[no_eos_outputs.view(-1)] *= NO_EOS_LOSS_MULTIPLIER
-        _mistranslation_loss = torch.mean(_mistranslation_loss[trg != spa_vocab.stoi['<pad>']])
-        _mistranslation_loss_weight = w_k * _mistranslation_loss_weight + (1 - w_k) * float(_mistranslation_loss)
-        _policy_loss_weight = w_k * _policy_loss_weight + (1 - w_k) * float(_policy_loss)
-
-        loss = _policy_loss / _policy_loss_weight + MISTRANSLATION_LOSS_MULTIPLIER * _mistranslation_loss / _mistranslation_loss_weight
+        loss, _mistranslation_loss = rql_criterion(word_outputs, trg, Q_used, Q_target)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
         epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(train_loader), total_actions.squeeze(1).tolist(), ro_to_k, _mistranslation_loss_weight, _policy_loss_weight
+    return epoch_loss / len(train_loader), total_actions.squeeze(1).tolist()
 
 
 def evaluate_epoch(loader):
     model.eval()
+    rql_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     with torch.no_grad():
@@ -208,7 +201,8 @@ def evaluate_epoch(loader):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            epoch_loss += mistranslation_loss(word_outputs_clipped, trg).item()
+            _, _mistranslation_loss = rql_criterion(word_outputs_clipped, trg, 0, 0)
+            epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), epoch_bleu / len(loader), total_actions.squeeze(1).tolist()
 
 
@@ -245,9 +239,8 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
 
-    mistranslation_loss = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
     mistranslation_loss_per_agent = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'], reduction='none')
-    policy_loss = nn.MSELoss()
+    rql_criterion = RQLCriterion(0.99, spa_vocab.stoi['<pad>'], MISTRANSLATION_LOSS_MULTIPLIER)
 
     OUTPUT_EOS = torch.tensor([spa_vocab.stoi['<eos>']]).to(device)
     OUTPUT_NULL = torch.tensor([spa_vocab.stoi['<null>']]).to(device)
@@ -257,11 +250,9 @@ if __name__ == '__main__':
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
-    _mistranslation_loss_weight, _policy_loss_weight = 0, 0
-    ro_to_k = 1
     for epoch in range(N_EPOCHS):
         start_time = time.time()
-        train_loss, train_actions, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight = train_epoch(epsilon, teacher_forcing, ro_to_k, _mistranslation_loss_weight, _policy_loss_weight)
+        train_loss, train_actions = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader)
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
