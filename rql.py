@@ -22,13 +22,14 @@ class RQL(nn.Module):
     training or testing environments in which n agents operate in order to transform source sequences into the target ones.
     """
 
-    def __init__(self, net, device, testing_episode_max_time, target_vocab_len,
+    def __init__(self, net, device, testing_episode_max_time, target_vocab_len, discount,
                  output_eos, output_null, output_pad, input_eos, input_null, input_pad):
         super().__init__()
         self.net = net
         self.device = device
         self.testing_episode_max_time = testing_episode_max_time
         self.target_vocab_len = target_vocab_len
+        self.DISCOUNT = discount
         self.OUTPUT_EOS = output_eos
         self.OUTPUT_NULL = output_null
         self.OUTPUT_PAD = output_pad
@@ -49,7 +50,7 @@ class RQL(nn.Module):
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
         word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
-        rnn_state = torch.zeros((NUM_RNN_LAYERS, batch_size, RNN_HID_DIM), device=device)
+        rnn_state = torch.zeros((net.rnn_num_layers, batch_size, net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, self.target_vocab_len), device=device)
         Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
@@ -114,10 +115,10 @@ class RQL(nn.Module):
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
                 reward = (-1) * self.mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
-                Q_target[t, :] = reward + DISCOUNT * next_best_action_value
+                Q_target[t, :] = reward + self.DISCOUNT * next_best_action_value
                 Q_target[t, terminated_agents.squeeze(0)] = 0
                 Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
-                Q_target[t, (reading_agents * naughty_agents).squeeze(0)] = DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
+                Q_target[t, (reading_agents * naughty_agents).squeeze(0)] = self.DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
                 Q_target[t, just_terminated_agents.squeeze(0)] = reward[just_terminated_agents]
                 Q_target[t, naughty_agents.squeeze(0)] -= 5.0
 
@@ -130,7 +131,7 @@ class RQL(nn.Module):
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
-        rnn_state = torch.zeros((NUM_RNN_LAYERS, batch_size, RNN_HID_DIM), device=device)
+        rnn_state = torch.zeros((net.rnn_num_layers, batch_size, net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.target_vocab_len), device=device)
 
@@ -221,8 +222,8 @@ if __name__ == '__main__':
     BATCH_SIZE = 128
     N_EPOCHS = 30
     RNN_HID_DIM = 256
+    RNN_NUM_LAYERS = 1
     DROPOUT = 0.0
-    NUM_RNN_LAYERS = 1
     DISCOUNT = 0.99
     MISTRANSLATION_LOSS_MULTIPLIER = 10
     CLIP = 10
@@ -243,8 +244,8 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, NUM_RNN_LAYERS).to(device)
-    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab),
+    net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
+    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT,
                 torch.tensor([target_vocab.stoi['<eos>']]).to(device),
                 torch.tensor([target_vocab.stoi['<null>']]).to(device),
                 torch.tensor([target_vocab.stoi['<pad>']]).to(device),

@@ -8,14 +8,16 @@ class Net(nn.Module):
                  trg_vocab,
                  rnn_hid_dim,
                  dropout,
-                 num_rnn_layers):
+                 rnn_num_layers):
         super().__init__()
 
         src_emb_dim = src_vocab.vectors.size()[1]
         trg_emb_dim = trg_vocab.vectors.size()[1]
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
         self.src_embedding = nn.Embedding(len(src_vocab), src_emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_rnn_layers, bidirectional=False, dropout=dropout)
+        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=dropout)
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
     def forward(self, src, previous_output, rnn_state):
@@ -29,7 +31,7 @@ class Net(nn.Module):
 
 class Net1(nn.Module):
     def __init__(self, src_vocab, trg_vocab, rnn_hid_dim,
-                 dropout, num_rnn_layers, linear_dim):
+                 dropout, rnn_num_layers, linear_dim):
 
         super().__init__()
         src_emb_dim = src_vocab.vectors.size()[1]
@@ -37,9 +39,11 @@ class Net1(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
 
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
         self.src_embedding = nn.Embedding(len(src_vocab), src_emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_rnn_layers, bidirectional=False, dropout=dropout)
+        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=dropout)
         self.linear = nn.Linear(rnn_hid_dim, linear_dim)
         self.output = nn.Linear(linear_dim, len(trg_vocab) + 3)
 
@@ -55,7 +59,7 @@ class Net1(nn.Module):
 
 class Net2(nn.Module):
     def __init__(self, src_vocab, trg_vocab, rnn_hid_dim, dropout,
-                 num_rnn_layers, linear1_dim, linear2_dim):
+                 rnn_num_layers, linear1_dim, linear2_dim):
 
         super().__init__()
         src_emb_dim = src_vocab.vectors.size()[1]
@@ -63,9 +67,11 @@ class Net2(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
 
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
         self.src_embedding = nn.Embedding(len(src_vocab), src_emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=num_rnn_layers, bidirectional=False, dropout=dropout)
+        self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=dropout)
         self.linear1 = nn.Linear(rnn_hid_dim, linear1_dim)
         self.linear2 = nn.Linear(linear1_dim, linear2_dim)
         self.output = nn.Linear(linear2_dim, len(trg_vocab) + 3)
