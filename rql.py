@@ -45,14 +45,14 @@ class RQL(nn.Module):
         Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
         Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
 
-        writing_agents = torch.full((1, batch_size), False, device=device)
-        naughty_agents = torch.full((1, batch_size,), False, device=device)  # Want more input after input eos
-        terminated_agents = torch.full((1, batch_size,), False, device=device)
+        writing_agents = torch.full((1, batch_size), False, device=device, requires_grad=False)
+        naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
+        terminated_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)
 
-        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
-        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
+        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
+        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
-        actions_count = torch.zeros(3, dtype=torch.long, device=device)
+        actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
         while True:
             input = torch.gather(src, 0, i)
@@ -124,12 +124,12 @@ class RQL(nn.Module):
 
         word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, len(spa_vocab)), device=device)
 
-        writing_agents = torch.full((1, batch_size), False, device=device)
-        naughty_agents = torch.full((1, batch_size,), False, device=device)  # Want more input after input eos
-        after_eos_agents = torch.full((1, batch_size,), False, device=device)  # Already outputted EOS
+        writing_agents = torch.full((1, batch_size), False, device=device, requires_grad=False)
+        naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
+        after_eos_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Already outputted EOS
 
-        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # input indices
-        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device)  # output indices
+        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
+        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device)
 
@@ -215,7 +215,6 @@ if __name__ == '__main__':
     NUM_RNN_LAYERS = 1
     DISCOUNT = 0.99
     MISTRANSLATION_LOSS_MULTIPLIER = 10
-    NO_EOS_LOSS_MULTIPLIER = 1.0
     CLIP = 10
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 64
