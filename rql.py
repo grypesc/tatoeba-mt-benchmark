@@ -37,7 +37,7 @@ class RQL(nn.Module):
         self.INPUT_NULL = input_null
         self.INPUT_PAD = input_pad
 
-        self.mistranslation_loss_per_agent = nn.CrossEntropyLoss(ignore_index=int(self.OUTPUT_PAD), reduction='none')
+        self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.OUTPUT_PAD), reduction='none')
 
     def forward(self, src, trg, epsilon, teacher_forcing):
         if self.training:
@@ -50,7 +50,7 @@ class RQL(nn.Module):
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
         word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
-        rnn_state = torch.zeros((net.rnn_num_layers, batch_size, net.rnn_hid_dim), device=device)
+        rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, self.target_vocab_len), device=device)
         Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
@@ -114,7 +114,7 @@ class RQL(nn.Module):
                 _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
-                reward = (-1) * self.mistranslation_loss_per_agent(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
+                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
                 Q_target[t, :] = reward + self.DISCOUNT * next_best_action_value
                 Q_target[t, terminated_agents.squeeze(0)] = 0
                 Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
@@ -131,7 +131,7 @@ class RQL(nn.Module):
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
-        rnn_state = torch.zeros((net.rnn_num_layers, batch_size, net.rnn_hid_dim), device=device)
+        rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.target_vocab_len), device=device)
 
@@ -142,7 +142,7 @@ class RQL(nn.Module):
         i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
         j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
-        actions_count = torch.zeros(3, dtype=torch.long, device=device)
+        actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
         while True:
             input = torch.gather(src, 0, i)
