@@ -22,22 +22,25 @@ class RQL(nn.Module):
     training or testing environments in which n agents operate in order to transform source sequences into the target ones.
     """
 
-    def __init__(self, net, device, testing_episode_max_time, target_vocab_len, discount,
-                 output_eos, output_null, output_pad, input_eos, input_null, input_pad):
+    def __init__(self, net, device, testing_episode_max_time, target_vocab_len, discount, m,
+                 src_eos_index, src_null_index, src_pad_index, trg_eos_index, trg_null_index, trg_pad_index):
         super().__init__()
         self.net = net
         self.device = device
         self.testing_episode_max_time = testing_episode_max_time
         self.target_vocab_len = target_vocab_len
         self.DISCOUNT = discount
-        self.OUTPUT_EOS = output_eos
-        self.OUTPUT_NULL = output_null
-        self.OUTPUT_PAD = output_pad
-        self.INPUT_EOS = input_eos
-        self.INPUT_NULL = input_null
-        self.INPUT_PAD = input_pad
+        self.M = m  # Read after eos punishment
 
-        self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.OUTPUT_PAD), reduction='none')
+        self.SRC_EOS = torch.tensor([src_eos_index], device=device)
+        self.SRC_NULL = torch.tensor([src_null_index], device=device)
+        self.SRC_PAD = torch.tensor([src_pad_index], device=device)
+        self.TRG_EOS = torch.tensor([trg_eos_index], device=device)
+        self.TRG_NULL = torch.tensor([trg_null_index], device=device)
+        self.TRG_PAD = torch.tensor([trg_pad_index], device=device)
+
+
+        self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
 
     def forward(self, src, trg, epsilon, teacher_forcing):
         if self.training:
@@ -49,7 +52,7 @@ class RQL(nn.Module):
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
-        word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
+        word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, self.target_vocab_len), device=device)
@@ -67,8 +70,8 @@ class RQL(nn.Module):
 
         while True:
             input = torch.gather(src, 0, i)
-            input[writing_agents] = self.INPUT_NULL
-            input[naughty_agents] = self.INPUT_PAD
+            input[writing_agents] = self.SRC_NULL
+            input[naughty_agents] = self.SRC_PAD
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
 
@@ -92,8 +95,8 @@ class RQL(nn.Module):
             agents_outputting = writing_agents + bothing_agents
             word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-3]
 
-            just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == self.OUTPUT_EOS).squeeze_(0)
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.INPUT_EOS).squeeze_(0)
+            just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == self.TRG_EOS).squeeze_(0)
+            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
             i = i + ~naughty_agents * (reading_agents + bothing_agents)
             old_j = j
             j = j + agents_outputting
@@ -105,12 +108,12 @@ class RQL(nn.Module):
 
             if random.random() < teacher_forcing:
                 word_output = torch.gather(trg, 0, old_j)
-            word_output[reading_agents] = self.OUTPUT_NULL
+            word_output[reading_agents] = self.TRG_NULL
 
             with torch.no_grad():
                 _input = torch.gather(src, 0, i)
-                _input[writing_agents] = self.INPUT_NULL
-                _input[naughty_agents] = self.INPUT_PAD
+                _input[writing_agents] = self.SRC_NULL
+                _input[naughty_agents] = self.SRC_PAD
                 _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
@@ -120,7 +123,7 @@ class RQL(nn.Module):
                 Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
                 Q_target[t, (reading_agents * naughty_agents).squeeze(0)] = self.DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
                 Q_target[t, just_terminated_agents.squeeze(0)] = reward[just_terminated_agents]
-                Q_target[t, naughty_agents.squeeze(0)] -= 5.0
+                Q_target[t, naughty_agents.squeeze(0)] -= self.M
 
                 if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
                     return word_outputs, Q_used, Q_target, actions_count.unsqueeze_(dim=1)
@@ -130,7 +133,7 @@ class RQL(nn.Module):
         device = self.device
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
-        word_output = torch.full((1, batch_size), int(self.OUTPUT_NULL), device=device)
+        word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.target_vocab_len), device=device)
@@ -146,8 +149,8 @@ class RQL(nn.Module):
 
         while True:
             input = torch.gather(src, 0, i)
-            input[writing_agents] = self.INPUT_NULL
-            input[naughty_agents] = self.INPUT_PAD
+            input[writing_agents] = self.SRC_NULL
+            input[naughty_agents] = self.SRC_PAD
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
@@ -163,13 +166,13 @@ class RQL(nn.Module):
             agents_outputting = writing_agents + bothing_agents
             word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-3]
 
-            after_eos_agents += (word_output == self.OUTPUT_EOS)
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.INPUT_EOS).squeeze_(0)
+            after_eos_agents += (word_output == self.TRG_EOS)
+            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
             i = i + ~naughty_agents * (reading_agents + bothing_agents)
             j = j + agents_outputting
 
             i[i >= src_seq_len] = src_seq_len - 1
-            word_output[reading_agents] = self.OUTPUT_NULL
+            word_output[reading_agents] = self.TRG_NULL
 
             if t >= self.testing_episode_max_time - 1:
                 return word_outputs, None, None, actions_count.unsqueeze_(dim=1)
@@ -225,6 +228,7 @@ if __name__ == '__main__':
     RNN_NUM_LAYERS = 1
     DROPOUT = 0.0
     DISCOUNT = 0.99
+    M = 5.0
     MISTRANSLATION_LOSS_MULTIPLIER = 10
     CLIP = 10
     RO = 0.99
@@ -245,13 +249,13 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
-    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT,
-                torch.tensor([target_vocab.stoi['<eos>']]).to(device),
-                torch.tensor([target_vocab.stoi['<null>']]).to(device),
-                torch.tensor([target_vocab.stoi['<pad>']]).to(device),
-                torch.tensor([source_vocab.stoi['<eos>']]).to(device),
-                torch.tensor([source_vocab.stoi['<null>']]).to(device),
-                torch.tensor([source_vocab.stoi['<pad>']]).to(device)).to(device)
+    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT, M,
+                source_vocab.stoi['<eos>'],
+                source_vocab.stoi['<null>'],
+                source_vocab.stoi['<pad>'],
+                target_vocab.stoi['<eos>'],
+                target_vocab.stoi['<null>'],
+                target_vocab.stoi['<pad>'])
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
