@@ -43,3 +43,9 @@ def actions_ratio(actions):
     s = sum(actions)
     a = [actions[0]/s, actions[1]/s, actions[2]/s]
     return [round(action, 2) for action in a]
+
+
+def save_model(model, path, is_best):
+    if is_best:
+        torch.save(model.state_dict(), path + "_best.pth")
+    torch.save(model.state_dict(), path + "_last.pth")

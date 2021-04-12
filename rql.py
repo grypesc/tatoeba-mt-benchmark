@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, bleu, actions_ratio
+from utils.tools import epoch_time, bleu, actions_ratio, save_model
 from utils.rql_nets import Net, Net1, Net2
 from criterions.rql_criterion import RQLCriterion
 
@@ -38,7 +38,6 @@ class RQL(nn.Module):
         self.TRG_EOS = torch.tensor([trg_eos_index], device=device)
         self.TRG_NULL = torch.tensor([trg_null_index], device=device)
         self.TRG_PAD = torch.tensor([trg_pad_index], device=device)
-
 
         self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
 
@@ -228,11 +227,11 @@ if __name__ == '__main__':
     RNN_NUM_LAYERS = 1
     DROPOUT = 0.0
     DISCOUNT = 0.99
-    M = 5.0
+    M = 3.0
     MISTRANSLATION_LOSS_MULTIPLIER = 10
     CLIP = 10
     RO = 0.99
-    TESTING_EPISODE_MAX_TIME = 64
+    TESTING_EPISODE_MAX_TIME = 128
     EPSILON_DECAY = 0.05
     TEACHER_FORCING_DECAY = 0.00
 
@@ -249,6 +248,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
+    # net.load_state_dict(torch.load("checkpoints/rql_best.pth"))
     model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT, M,
                 source_vocab.stoi['<eos>'],
                 source_vocab.stoi['<null>'],
@@ -263,10 +263,13 @@ if __name__ == '__main__':
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
+    best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()
         train_loss, train_actions = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader)
+        # save_model(net, "checkpoints/rql", val_bleu > best_val_bleu)
+        # best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
