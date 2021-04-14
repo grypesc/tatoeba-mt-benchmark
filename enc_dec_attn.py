@@ -7,11 +7,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from torch import Tensor
-from torch.utils.data import DataLoader
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, bleu
+from utils.tools import epoch_time, BleuScorer
 
 random.seed(20)
 torch.manual_seed(20)
@@ -164,15 +163,11 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-def train(model: nn.Module,
-          iterator: torch.utils.data.DataLoader,
-          optimizer: optim.Optimizer,
-          criterion: nn.Module,
-          clip: float):
+def train(model, data_loader, optimizer, criterion, clip):
     model.train()
     epoch_loss = 0
 
-    for _, (src, trg) in enumerate(iterator):
+    for _, (src, trg) in enumerate(data_loader):
         src, trg = src.to(device), trg.to(device)
         optimizer.zero_grad()
         output = model(src, trg)
@@ -183,25 +178,23 @@ def train(model: nn.Module,
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
         epoch_loss += loss.item()
-    return epoch_loss / len(iterator)
+    return epoch_loss / len(data_loader)
 
 
-def evaluate(model: nn.Module,
-             iterator: torch.utils.data.DataLoader,
-             criterion: nn.Module):
+def evaluate(model, data_loader, criterion, bleu_scorer):
     model.eval()
     epoch_loss, epoch_bleu = 0, 0
     with torch.no_grad():
-        for _, (src, trg) in enumerate(iterator):
+        for _, (src, trg) in enumerate(data_loader):
             src, trg = src.to(device), trg.to(device)
             output = model(src, trg, 0)  # turn off teacher forcing
-            epoch_bleu += bleu(output[1:, :, :], trg[1:, :], spa_vocab, device)
+            bleu_scorer.register_minibatch(output[1:, :, :], trg[1:, :])
             output_clipped = output[:trg.size()[0], :, :]
             output_clipped = output_clipped[1:].view(-1, output_clipped.shape[-1])
             trg = trg[1:].view(-1)
             loss = criterion(output_clipped, trg)
             epoch_loss += loss.item()
-    return epoch_loss / len(iterator), epoch_bleu / len(iterator)
+    return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
 if __name__ == '__main__':
@@ -238,10 +231,11 @@ if __name__ == '__main__':
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
+    bleu_scorer = BleuScorer(spa_vocab, device)
     for epoch in range(N_EPOCHS):
         start_time = time.time()
         train_loss = train(model, train_loader, optimizer, criterion, CLIP)
-        valid_loss, valid_bleu = evaluate(model, valid_loader, criterion)
+        valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -250,6 +244,6 @@ if __name__ == '__main__':
         print(f'\tTrain loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
         print(f'\tValid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}')
 
-    test_loss, test_bleu = evaluate(model, test_loader, criterion)
+    test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
 
     print(f'\tTest loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')

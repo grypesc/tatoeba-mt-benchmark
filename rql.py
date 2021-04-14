@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, bleu, actions_ratio, save_model
+from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rql_nets import Net, Net1, Net2
 from criterions.rql_criterion import RQLCriterion
 
@@ -75,7 +75,7 @@ class RQL(nn.Module):
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
 
-            random_action_agents = torch.rand(1, batch_size, device=device) < epsilon
+            random_action_agents = torch.rand((1, batch_size), device=device) < epsilon
             random_action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)
             action[random_action_agents] = random_action[random_action_agents]
 
@@ -200,7 +200,7 @@ def train_epoch(epsilon, teacher_forcing):
     return epoch_loss / len(train_loader), total_actions.squeeze(1).tolist()
 
 
-def evaluate_epoch(loader):
+def evaluate_epoch(loader, bleu_scorer):
     model.eval()
     rql_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
@@ -210,13 +210,13 @@ def evaluate_epoch(loader):
             src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, actions = model(src, trg, 0, 0)
             total_actions += actions.cumsum(dim=1)
-            epoch_bleu += bleu(word_outputs, trg, target_vocab, device)
+            bleu_scorer.register_minibatch(word_outputs, trg)
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
             _, _mistranslation_loss = rql_criterion(word_outputs_clipped, trg, 0, 0)
             epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(loader), epoch_bleu / len(loader), total_actions.squeeze(1).tolist()
+    return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
 
 if __name__ == '__main__':
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
-    # net.load_state_dict(torch.load("checkpoints/rql_best.pth"))
+    # net.load_state_dict(torch.load("checkpoints/rql_best_512x2.pth"))
     model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT, M,
                 source_vocab.stoi['<eos>'],
                 source_vocab.stoi['<null>'],
@@ -263,11 +263,12 @@ if __name__ == '__main__':
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
+    bleu_scorer = BleuScorer(target_vocab, device)
     best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()
         train_loss, train_actions = train_epoch(epsilon, teacher_forcing)
-        val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader)
+        val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
         # save_model(net, "checkpoints/rql", val_bleu > best_val_bleu)
         # best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
         end_time = time.time()
@@ -281,6 +282,6 @@ if __name__ == '__main__':
         epsilon = max(0.05, epsilon - EPSILON_DECAY)
         teacher_forcing = max(0.05, teacher_forcing - TEACHER_FORCING_DECAY)
 
-    test_loss, test_bleu, test_actions = evaluate_epoch(test_loader)
+    test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
     print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
 
