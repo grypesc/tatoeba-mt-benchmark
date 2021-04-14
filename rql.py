@@ -73,11 +73,11 @@ class RQL(nn.Module):
             input[naughty_agents] = self.SRC_PAD
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
+            action = torch.max(output[:, :, -3:], 2)[1]
 
-            if random.random() < epsilon:
-                action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)
-            else:
-                action = torch.max(output[:, :, -3:], 2)[1]
+            random_action_agents = torch.rand(1, batch_size, device=device) < epsilon
+            random_action = torch.randint(low=0, high=3, size=(1, batch_size), device=device)
+            action[random_action_agents] = random_action[random_action_agents]
 
             Q_used[t, :] = torch.gather(output[0, :, -3:], 1, action.T).squeeze_(1)
             Q_used[t, terminated_agents.squeeze(0)] = 0
@@ -232,10 +232,10 @@ if __name__ == '__main__':
     CLIP = 10
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 128
-    EPSILON_DECAY = 0.05
+    EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
 
-    epsilon = 0.5
+    epsilon = 0.1
     teacher_forcing = 0.5
 
     data = DataPipeline(batch_size=BATCH_SIZE, null_replaces_bos=True)
