@@ -1,25 +1,70 @@
+import argparse
+import pickle
 import random
+
+from tatoebatools import ParallelCorpus
+from torchtext.data.utils import get_tokenizer
 
 random.seed(20)
 
+lang_name_dict = {
+    "en": "eng",
+    "de": "deu",
+    "fr": "fra",
+    "es": "spa"
+}
 
-def save_set(set, data_path):
-    with open(data_path + "_eng.txt", 'w') as file:
-        file.writelines(["%s\n" % item[0] for item in set])
-    with open(data_path + "_spa.txt", 'w') as file:
-        file.writelines(["%s\n" % item[1] for item in set])
-
+tokenizers_dict = {
+    "en": "en_core_web_md",
+    "de": "de_core_news_md",
+    "fr": "fr_core_news_md",
+    "es": "es_core_news_md"
+}
 
 if __name__ == '__main__':
-    '''Generates data sets from manythings.org dataset'''
-    lines = open("data/spa.txt", encoding='utf-8').read().strip().split('\n')
-    pairs = [[s.lower() for s in l.split('\t')[0:2]] for l in lines]
-    random.shuffle(pairs)
-    pairs = [[line.replace('\xa0', '') for line in pair] for pair in pairs]  # remove no breaking space, happens in tatoeba
-    train_set = pairs[0:int(0.6 * len(pairs))]
-    validation_set = pairs[int(0.6 * len(pairs)):int(0.8 * len(pairs))]
-    test_set = pairs[int(0.8 * len(pairs)):]
 
-    save_set(train_set, "data/train")
-    save_set(validation_set, "data/validation")
-    save_set(test_set, "data/test")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--src',
+                        help='source language',
+                        type=str,
+                        default='en')
+    parser.add_argument('--trg',
+                        help='target language',
+                        type=str,
+                        default='es')
+    parser.add_argument('--max_sequence_length',
+                        help='max number of tokens in src and trg sequences',
+                        type=int,
+                        default=20)
+
+    args = parser.parse_args()
+
+    pairs = [[sentence.text, translation.text] for sentence, translation in ParallelCorpus(lang_name_dict[args.src], lang_name_dict[args.trg])]
+    pairs = [[line.replace('\xa0', '') for line in pair] for pair in pairs]  # remove no breaking space, happens in tatoeba
+    pairs = [[s.lower() for s in pair] for pair in pairs]
+    random.shuffle(pairs)
+
+    src_tokenizer = get_tokenizer('spacy', language=tokenizers_dict[args.src])
+    trg_tokenizer = get_tokenizer('spacy', language=tokenizers_dict[args.trg])
+
+    tokenized_pairs = [[src_tokenizer(sentence), trg_tokenizer(translation)] for sentence, translation in pairs]
+    tokenized_pairs = [[s, t] for s, t in tokenized_pairs if len(s) < args.max_sequence_length and len(t) < args.max_sequence_length]
+    tokenized_pairs_str = [[' '.join(src_word for src_word in tokenized_pair[0]), ' '.join(trg_word for trg_word in tokenized_pair[1])] for tokenized_pair in tokenized_pairs]
+
+    unique_src_sentences_dict = {pair[0]: pair[1] for pair in tokenized_pairs_str}  # remove repeated src sentences
+    pairs = [[src_sentence, unique_src_sentences_dict[src_sentence]] for src_sentence in unique_src_sentences_dict.keys()]
+    final_pairs = [[pair[0].split(" "), pair[1].split(" ")] for pair in pairs]
+
+    train_set = final_pairs[0:int(0.6 * len(pairs))]
+    validation_set = final_pairs[int(0.6 * len(pairs)):int(0.8 * len(pairs))]
+    test_set = final_pairs[int(0.8 * len(pairs)):]
+
+    prefix = args.src + "_" + args.trg
+    with open("data/" + prefix + "_train.pickle", 'wb') as outfile:
+        pickle.dump(train_set, outfile)
+
+    with open("data/" + prefix + "_valid.pickle", 'wb') as outfile:
+        pickle.dump(validation_set, outfile)
+
+    with open("data/" + prefix + "_test.pickle", 'wb') as outfile:
+        pickle.dump(test_set, outfile)

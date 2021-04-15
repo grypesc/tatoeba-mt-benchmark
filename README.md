@@ -1,8 +1,8 @@
 # atmt
 Approaches to machine translation  
-Machine translation algorithms tested on tatoeba english to spanish dataset. Dataset is tokenized
+Machine translation algorithms and Tatoeba translation benchmark. Dataset is tokenized
 with Spacy tokenizer by DataPipeline object and tokens are transformed into FastText embeddings. Currently implemented:
-* enc_dec_attn.py - RNN encoder-decoder with attention.
+* enc_dec_attn.py - Bidirectional encoder-decoder with attention.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
 
 Setup:
@@ -23,13 +23,14 @@ pip install pip -U
 pip install -r requirements.txt
 python -m spacy download en_core_web_md
 python -m spacy download es_core_news_md
-wget https://www.manythings.org/anki/spa-eng.zip -O data/spa-eng.zip
-unzip data/spa-eng.zip -d data
+python -m spacy download fr_core_news_md
+python -m spacy download de_core_news_md
 ```
-Create training, validation, test sets by running generate_dataset.py:
+Create desired datasets by running generate_dataset.py, currently there are 4 languages 
+supported: (en, es, fr, de), so that's 12 combinations:
 
 ```python3
-python generate_datasets.py
+python generate_datasets.py --src en --trg es
 ```
 
 Now you are good to run any algorithm you want :).

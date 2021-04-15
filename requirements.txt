@@ -3,3 +3,4 @@ numpy~=1.19.4
 torch~=1.7.0
 torchtext~=0.8.0
 spacy~=2.3.4
+tatoebatools~=0.1.1

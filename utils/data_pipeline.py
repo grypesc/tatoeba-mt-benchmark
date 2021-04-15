@@ -1,93 +1,84 @@
-import io
+import pickle
 import torch
 
 from collections import Counter
-from torchtext.data.utils import get_tokenizer
 from torchtext.vocab import Vocab, FastText
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 
 class DataPipeline:
-    """Provides vocabularies and data loaders from english to spanish sentences. Uses
-    pretrained FastText embeddings. Can either use bos token which is always the first one in src and trg
-    sequences or use null token, which is useful for rql"""
+    """Provides vocabularies and data loaders for train, valid, test. Uses pretrained FastText embeddings. Can
+    either use bos token which is always the first one in src and trg sequences or use null token, which is
+    useful for rql"""
 
-    def __init__(self, batch_size=64, null_replaces_bos=False):
+    def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False):
 
+        self.src_lang = src_lang
+        self.trg_lang = trg_lang
         self.bos_or_null_token = "<null>" if null_replaces_bos else "<bos>"
 
-        train_filepaths = ["data/train_eng.txt", "data/train_spa.txt"]
-        val_filepaths = ["data/validation_eng.txt", "data/validation_spa.txt"]
-        test_filepaths = ["data/test_eng.txt", "data/test_spa.txt"]
-        self.en_tokenizer = get_tokenizer('spacy', language='en_core_web_md')
-        self.spa_tokenizer = get_tokenizer('spacy', language='es_core_news_md')
-        self.en_vocab = self.build_input_vocab(train_filepaths[0], self.en_tokenizer)
-        self.spa_vocab = self.build_output_vocab(train_filepaths[1], self.spa_tokenizer)
+        prefix = src_lang + "_" + trg_lang
+        train_filepath = "data/" + prefix + "_train.pickle"
+        val_filepath = "data/" + prefix + "_valid.pickle"
+        test_filepath = "data/" + prefix + "_test.pickle"
 
-        train_data = self.tensor_from_files(train_filepaths)
-        val_data = self.tensor_from_files(val_filepaths)
-        test_data = self.tensor_from_files(test_filepaths)
+        self.en_vocab, self.spa_vocab = self.build_vocabs(train_filepath)
+
+        train_data = self.tensor_from_files(train_filepath)
+        val_data = self.tensor_from_files(val_filepath)
+        test_data = self.tensor_from_files(test_filepath)
 
         generate_batch = self.generate_null_batch if null_replaces_bos else self.generate_bos_batch
         self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
         self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
         self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
 
-    def build_input_vocab(self, filepath, tokenizer):
-        counter = Counter()
-        with io.open(filepath, encoding="utf8") as f:
-            for string_ in f:
-                counter.update(tokenizer(string_))
-        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], vectors=FastText(language='en', max_vectors=1000_000))
+    def build_vocabs(self, filepath):
+        src_counter, trg_counter = Counter(), Counter()
+        with open(filepath, 'rb') as f:
+            pairs = pickle.load(f)
+        for pair in pairs:
+            src_counter.update(pair[0])
+            trg_counter.update(pair[1])
+        src_vocab = self.vocab_from_counter(src_counter, self.src_lang)
+        trg_vocab = self.vocab_from_counter(trg_counter, self.trg_lang)
+        return src_vocab, trg_vocab
+
+    def vocab_from_counter(self, counter, lang):
+        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], vectors=FastText(language=lang, max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
         vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
-        vocab.vectors[vocab['<eos>']][1] = 1
-        vocab.vectors[vocab['<pad>']][2] = 1
+        vocab.vectors[vocab['<pad>']][1] = 1
+        vocab.vectors[vocab['<eos>']][2] = 1
         return vocab
 
-    def build_output_vocab(self, filepath, tokenizer):
-        counter = Counter()
-        with io.open(filepath, encoding="utf8") as f:
-            for string_ in f:
-                counter.update(tokenizer(string_))
-            vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>', '<eos>'], vectors=FastText(language='es', max_vectors=1000_000))
-        zero_vec = torch.zeros(vocab.vectors.size()[0])
-        zero_vec = torch.unsqueeze(zero_vec, dim=1)
-        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-        vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
-        vocab.vectors[vocab['<eos>']][1] = 1
-        vocab.vectors[vocab['<pad>']][2] = 1
-        return vocab
-
-    def tensor_from_files(self, filepaths):
-        raw_en_iter = iter(io.open(filepaths[0], encoding="utf8"))
-        raw_spa_iter = iter(io.open(filepaths[1], encoding="utf8"))
+    def tensor_from_files(self, filepath):
+        with open(filepath, 'rb') as f:
+            pairs = pickle.load(f)
         data = []
-        for (raw_en, raw_spa) in zip(raw_en_iter, raw_spa_iter):
-            en_tensor_ = torch.tensor([self.en_vocab[token] for token in self.en_tokenizer(raw_en)[:-1]],
-                                      dtype=torch.long)  # [:-1] ignore /n at the line end
-            spa_tensor_ = torch.tensor([self.spa_vocab[token] for token in self.spa_tokenizer(raw_spa)[:-1]],
-                                       dtype=torch.long)  # [:-1] ignore /n at the line end
+        for pair in pairs:
+            en_tensor_ = torch.tensor([self.en_vocab[token] for token in pair[0]], dtype=torch.long)
+            spa_tensor_ = torch.tensor([self.spa_vocab[token] for token in pair[1]], dtype=torch.long)
             data.append((en_tensor_, spa_tensor_))
         return data
 
     def generate_null_batch(self, data_batch):
-        en_batch, spa_batch, = [], []
+        src_batch, trg_batch, = [], []
         for (en_item, spa__item) in data_batch:
-            en_batch.append(torch.cat([en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
-            spa_batch.append(torch.cat([spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
-        en_batch = pad_sequence(en_batch, padding_value=self.en_vocab['<pad>'])
-        spa_batch = pad_sequence(spa_batch, padding_value=self.spa_vocab['<pad>'])
-        return en_batch, spa_batch
+            src_batch.append(torch.cat([en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
+            trg_batch.append(torch.cat([spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
+        src_batch = pad_sequence(src_batch, padding_value=self.en_vocab['<pad>'])
+        trg_batch = pad_sequence(trg_batch, padding_value=self.spa_vocab['<pad>'])
+        return src_batch, trg_batch
 
     def generate_bos_batch(self, data_batch):
-        en_batch, spa_batch, = [], []
+        src_batch, trg_batch, = [], []
         for (en_item, spa__item) in data_batch:
-            en_batch.append(torch.cat([torch.tensor([self.en_vocab['<bos>']]), en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
-            spa_batch.append(torch.cat([torch.tensor([self.spa_vocab['<bos>']]), spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
-        en_batch = pad_sequence(en_batch, padding_value=self.en_vocab['<pad>'])
-        spa_batch = pad_sequence(spa_batch, padding_value=self.spa_vocab['<pad>'])
-        return en_batch, spa_batch
+            src_batch.append(torch.cat([torch.tensor([self.en_vocab['<bos>']]), en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
+            trg_batch.append(torch.cat([torch.tensor([self.spa_vocab['<bos>']]), spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
+        src_batch = pad_sequence(src_batch, padding_value=self.en_vocab['<pad>'])
+        trg_batch = pad_sequence(trg_batch, padding_value=self.spa_vocab['<pad>'])
+        return src_batch, trg_batch

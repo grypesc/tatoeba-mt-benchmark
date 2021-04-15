@@ -223,7 +223,7 @@ def evaluate_epoch(loader, bleu_scorer):
 
 if __name__ == '__main__':
 
-    BATCH_SIZE = 128
+    BATCH_SIZE = 64
     N_EPOCHS = 30
     RNN_HID_DIM = 256
     RNN_NUM_LAYERS = 1
@@ -240,7 +240,7 @@ if __name__ == '__main__':
     epsilon = 0.1
     teacher_forcing = 0.5
 
-    data = DataPipeline(batch_size=BATCH_SIZE, null_replaces_bos=True)
+    data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es", null_replaces_bos=True)
     source_vocab = data.en_vocab
     target_vocab = data.spa_vocab
     train_loader = data.train_loader

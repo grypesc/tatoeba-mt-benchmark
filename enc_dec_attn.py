@@ -209,7 +209,7 @@ if __name__ == '__main__':
     CLIP = 1
     TEST_SEQUENCE_MAX_LENGTH = 64
 
-    data = DataPipeline(batch_size=BATCH_SIZE)
+    data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es")
     en_vocab = data.en_vocab
     spa_vocab = data.spa_vocab
     train_loader = data.train_loader
