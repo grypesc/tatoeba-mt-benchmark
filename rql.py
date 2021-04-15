@@ -181,7 +181,8 @@ class RQL(nn.Module):
 def train_epoch(epsilon, teacher_forcing):
     model.train()
     rql_criterion.train()
-    epoch_loss = 0
+    epoch_mistranslation_loss = 0
+    epoch_policy_loss = 0
 
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
@@ -192,12 +193,13 @@ def train_epoch(epsilon, teacher_forcing):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        loss, _mistranslation_loss = rql_criterion(word_outputs, trg, Q_used, Q_target)
+        loss, mistranslation_loss, policy_loss = rql_criterion(word_outputs, trg, Q_used, Q_target)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
-        epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(train_loader), total_actions.squeeze(1).tolist()
+        epoch_mistranslation_loss += mistranslation_loss.item()
+        epoch_policy_loss += policy_loss.item()
+    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist()
 
 
 def evaluate_epoch(loader, bleu_scorer):
@@ -214,7 +216,7 @@ def evaluate_epoch(loader, bleu_scorer):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            _, _mistranslation_loss = rql_criterion(word_outputs_clipped, trg, 0, 0)
+            _, _mistranslation_loss, _ = rql_criterion(word_outputs_clipped, trg, 0, 0)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
@@ -267,7 +269,7 @@ if __name__ == '__main__':
     best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()
-        train_loss, train_actions = train_epoch(epsilon, teacher_forcing)
+        train_loss, policy_loss, train_actions = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
         # save_model(net, "checkpoints/rql", val_bleu > best_val_bleu)
         # best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
@@ -275,8 +277,8 @@ if __name__ == '__main__':
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print('Train loss: {}, PPL: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 5), round(math.exp(train_loss), 3),  round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
-        print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 5), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
+        print('Train loss: {}, PPL: {}, policy loss: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
+        print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
         lr_scheduler.step()
         epsilon = max(0.05, epsilon - EPSILON_DECAY)
