@@ -223,7 +223,7 @@ def evaluate_epoch(loader, bleu_scorer):
 
 if __name__ == '__main__':
 
-    BATCH_SIZE = 64
+    BATCH_SIZE = 128
     N_EPOCHS = 30
     RNN_HID_DIM = 256
     RNN_NUM_LAYERS = 1
@@ -231,13 +231,13 @@ if __name__ == '__main__':
     DISCOUNT = 0.99
     M = 3.0
     MISTRANSLATION_LOSS_MULTIPLIER = 10
-    CLIP = 10
+    CLIP = 1.0
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 128
     EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
 
-    epsilon = 0.1
+    epsilon = 0.2
     teacher_forcing = 0.5
 
     data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es", null_replaces_bos=True)

@@ -33,7 +33,7 @@ if __name__ == '__main__':
                         type=str,
                         default='es')
     parser.add_argument('--max_sequence_length',
-                        help='max number of tokens in src and trg sequences',
+                        help='max sequence length not including eos and bos tokens',
                         type=int,
                         default=20)
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     trg_tokenizer = get_tokenizer('spacy', language=tokenizers_dict[args.trg])
 
     tokenized_pairs = [[src_tokenizer(sentence), trg_tokenizer(translation)] for sentence, translation in pairs]
-    tokenized_pairs = [[s, t] for s, t in tokenized_pairs if len(s) < args.max_sequence_length and len(t) < args.max_sequence_length]
+    tokenized_pairs = [[s, t] for s, t in tokenized_pairs if len(s) <= args.max_sequence_length and len(t) <= args.max_sequence_length]
     tokenized_pairs_str = [[' '.join(src_word for src_word in tokenized_pair[0]), ' '.join(trg_word for trg_word in tokenized_pair[1])] for tokenized_pair in tokenized_pairs]
 
     unique_src_sentences_dict = {pair[0]: pair[1] for pair in tokenized_pairs_str}  # remove repeated src sentences
