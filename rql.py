@@ -22,13 +22,13 @@ class RQL(nn.Module):
     training or testing environments in which n agents operate in order to transform source sequences into the target ones.
     """
 
-    def __init__(self, net, device, testing_episode_max_time, target_vocab_len, discount, m,
+    def __init__(self, net, device, testing_episode_max_time, trg_vocab_len, discount, m,
                  src_eos_index, src_null_index, src_pad_index, trg_eos_index, trg_null_index, trg_pad_index):
         super().__init__()
         self.net = net
         self.device = device
         self.testing_episode_max_time = testing_episode_max_time
-        self.target_vocab_len = target_vocab_len
+        self.trg_vocab_len = trg_vocab_len
         self.DISCOUNT = discount
         self.M = m  # Read after eos punishment
 
@@ -54,7 +54,7 @@ class RQL(nn.Module):
         word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
-        word_outputs = torch.zeros((trg_seq_len, batch_size, self.target_vocab_len), device=device)
+        word_outputs = torch.zeros((trg_seq_len, batch_size, self.trg_vocab_len), device=device)
         Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
         Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
 
@@ -135,7 +135,7 @@ class RQL(nn.Module):
         word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
-        word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.target_vocab_len), device=device)
+        word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.trg_vocab_len), device=device)
 
         writing_agents = torch.full((1, batch_size), False, device=device, requires_grad=False)
         naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
@@ -241,31 +241,31 @@ if __name__ == '__main__':
     teacher_forcing = 0.5
 
     data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es", null_replaces_bos=True)
-    source_vocab = data.en_vocab
-    target_vocab = data.spa_vocab
+    src_vocab = data.src_vocab
+    trg_vocab = data.trg_vocab
     train_loader = data.train_loader
     valid_loader = data.valid_loader
     test_loader = data.test_loader
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    net = Net(source_vocab, target_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
+    net = Net(src_vocab, trg_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
     # net.load_state_dict(torch.load("checkpoints/rql_best_512x2.pth"))
-    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(target_vocab), DISCOUNT, M,
-                source_vocab.stoi['<eos>'],
-                source_vocab.stoi['<null>'],
-                source_vocab.stoi['<pad>'],
-                target_vocab.stoi['<eos>'],
-                target_vocab.stoi['<null>'],
-                target_vocab.stoi['<pad>'])
+    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(trg_vocab), DISCOUNT, M,
+                src_vocab.stoi['<eos>'],
+                src_vocab.stoi['<null>'],
+                src_vocab.stoi['<pad>'],
+                trg_vocab.stoi['<eos>'],
+                trg_vocab.stoi['<null>'],
+                trg_vocab.stoi['<pad>'])
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rql_criterion = RQLCriterion(RO, target_vocab.stoi['<pad>'], MISTRANSLATION_LOSS_MULTIPLIER)
+    rql_criterion = RQLCriterion(RO, trg_vocab.stoi['<pad>'], MISTRANSLATION_LOSS_MULTIPLIER)
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
-    bleu_scorer = BleuScorer(target_vocab, device)
+    bleu_scorer = BleuScorer(trg_vocab, device)
     best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()

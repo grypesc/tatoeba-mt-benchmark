@@ -23,7 +23,7 @@ class DataPipeline:
         val_filepath = "data/" + prefix + "_valid.pickle"
         test_filepath = "data/" + prefix + "_test.pickle"
 
-        self.en_vocab, self.spa_vocab = self.build_vocabs(train_filepath)
+        self.src_vocab, self.trg_vocab = self.build_vocabs(train_filepath)
 
         train_data = self.tensor_from_files(train_filepath)
         val_data = self.tensor_from_files(val_filepath)
@@ -60,25 +60,25 @@ class DataPipeline:
             pairs = pickle.load(f)
         data = []
         for pair in pairs:
-            en_tensor_ = torch.tensor([self.en_vocab[token] for token in pair[0]], dtype=torch.long)
-            spa_tensor_ = torch.tensor([self.spa_vocab[token] for token in pair[1]], dtype=torch.long)
+            en_tensor_ = torch.tensor([self.src_vocab[token] for token in pair[0]], dtype=torch.long)
+            spa_tensor_ = torch.tensor([self.trg_vocab[token] for token in pair[1]], dtype=torch.long)
             data.append((en_tensor_, spa_tensor_))
         return data
 
     def generate_null_batch(self, data_batch):
         src_batch, trg_batch, = [], []
         for (en_item, spa__item) in data_batch:
-            src_batch.append(torch.cat([en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
-            trg_batch.append(torch.cat([spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
-        src_batch = pad_sequence(src_batch, padding_value=self.en_vocab['<pad>'])
-        trg_batch = pad_sequence(trg_batch, padding_value=self.spa_vocab['<pad>'])
+            src_batch.append(torch.cat([en_item, torch.tensor([self.src_vocab['<eos>']])], dim=0))
+            trg_batch.append(torch.cat([spa__item, torch.tensor([self.trg_vocab['<eos>']])], dim=0))
+        src_batch = pad_sequence(src_batch, padding_value=self.src_vocab['<pad>'])
+        trg_batch = pad_sequence(trg_batch, padding_value=self.trg_vocab['<pad>'])
         return src_batch, trg_batch
 
     def generate_bos_batch(self, data_batch):
         src_batch, trg_batch, = [], []
         for (en_item, spa__item) in data_batch:
-            src_batch.append(torch.cat([torch.tensor([self.en_vocab['<bos>']]), en_item, torch.tensor([self.en_vocab['<eos>']])], dim=0))
-            trg_batch.append(torch.cat([torch.tensor([self.spa_vocab['<bos>']]), spa__item, torch.tensor([self.spa_vocab['<eos>']])], dim=0))
-        src_batch = pad_sequence(src_batch, padding_value=self.en_vocab['<pad>'])
-        trg_batch = pad_sequence(trg_batch, padding_value=self.spa_vocab['<pad>'])
+            src_batch.append(torch.cat([torch.tensor([self.src_vocab['<bos>']]), en_item, torch.tensor([self.src_vocab['<eos>']])], dim=0))
+            trg_batch.append(torch.cat([torch.tensor([self.trg_vocab['<bos>']]), spa__item, torch.tensor([self.trg_vocab['<eos>']])], dim=0))
+        src_batch = pad_sequence(src_batch, padding_value=self.src_vocab['<pad>'])
+        trg_batch = pad_sequence(trg_batch, padding_value=self.trg_vocab['<pad>'])
         return src_batch, trg_batch

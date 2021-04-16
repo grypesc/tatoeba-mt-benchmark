@@ -31,7 +31,7 @@ class Encoder(nn.Module):
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout
 
-        self.embedding = nn.Embedding(input_dim, emb_dim).from_pretrained(en_vocab.vectors, freeze=True)
+        self.embedding = nn.Embedding(input_dim, emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
         self.rnn = nn.GRU(emb_dim, enc_hid_dim, num_layers=1, bidirectional=True)
         self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
         self.dropout = nn.Dropout(dropout)
@@ -85,7 +85,7 @@ class Decoder(nn.Module):
         self.dropout = dropout
         self.attention = attention
 
-        self.embedding = nn.Embedding(output_dim, emb_dim).from_pretrained(spa_vocab.vectors, freeze=True)
+        self.embedding = nn.Embedding(output_dim, emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
         self.rnn = nn.GRU((enc_hid_dim * 2) + emb_dim, dec_hid_dim)
         self.out = nn.Linear(self.attention.attn_in + emb_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
@@ -210,28 +210,28 @@ if __name__ == '__main__':
     TEST_SEQUENCE_MAX_LENGTH = 64
 
     data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es")
-    en_vocab = data.en_vocab
-    spa_vocab = data.spa_vocab
+    src_vocab = data.src_vocab
+    trg_vocab = data.trg_vocab
     train_loader = data.train_loader
     valid_loader = data.valid_loader
     test_loader = data.test_loader
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    INPUT_DIM = len(en_vocab)
-    OUTPUT_DIM = len(spa_vocab)
+    INPUT_DIM = len(src_vocab)
+    OUTPUT_DIM = len(trg_vocab)
 
-    enc = Encoder(INPUT_DIM, en_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
+    enc = Encoder(INPUT_DIM, src_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
     attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
-    dec = Decoder(OUTPUT_DIM, spa_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
+    dec = Decoder(OUTPUT_DIM, trg_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
     model = Seq2Seq(enc, dec, device, TEST_SEQUENCE_MAX_LENGTH).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
-    criterion = nn.CrossEntropyLoss(ignore_index=spa_vocab.stoi['<pad>'])
+    criterion = nn.CrossEntropyLoss(ignore_index=trg_vocab.stoi['<pad>'])
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
-    bleu_scorer = BleuScorer(spa_vocab, device)
+    bleu_scorer = BleuScorer(trg_vocab, device)
     for epoch in range(N_EPOCHS):
         start_time = time.time()
         train_loss = train(model, train_loader, optimizer, criterion, CLIP)
