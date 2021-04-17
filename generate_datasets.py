@@ -35,11 +35,11 @@ if __name__ == '__main__':
     parser.add_argument('--max_sequence_length',
                         help='max sequence length not including eos and bos tokens',
                         type=int,
-                        default=20)
+                        default=22)
 
     args = parser.parse_args()
 
-    pairs = [[sentence.text, translation.text] for sentence, translation in ParallelCorpus(lang_name_dict[args.src], lang_name_dict[args.trg])]
+    pairs = [[sentence.text, translation.text] for sentence, translation in ParallelCorpus(lang_name_dict[args.src], lang_name_dict[args.trg], update=False)]
     pairs = [[line.replace('\xa0', '') for line in pair] for pair in pairs]  # remove no breaking space, happens in tatoeba
     pairs = [[s.lower() for s in pair] for pair in pairs]
     random.shuffle(pairs)
