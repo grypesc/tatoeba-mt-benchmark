@@ -9,7 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rql_nets import Net, Net1, Net2
-from criterions.rql_criterion import RQLCriterion, RQLCriterionExp
+from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLAdaptiveCriterion
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -193,7 +193,7 @@ def train_epoch(epsilon, teacher_forcing):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        loss, mistranslation_loss, policy_loss = rql_criterion(word_outputs, trg, Q_used, Q_target)
+        loss, mistranslation_loss, policy_loss = rql_criterion(word_outputs, trg, Q_used, Q_target, mlm)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
@@ -216,7 +216,7 @@ def evaluate_epoch(loader, bleu_scorer):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            _, _mistranslation_loss, _ = rql_criterion(word_outputs_clipped, trg, 0, 0)
+            _, _mistranslation_loss, _ = rql_criterion(word_outputs_clipped, trg, 0, 0, mlm)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
@@ -230,13 +230,14 @@ if __name__ == '__main__':
     DROPOUT = 0.0
     DISCOUNT = 0.99
     M = 3.0
-    MISTRANSLATION_LOSS_MULTIPLIER = 10
     CLIP = 1.0
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 128
+    MLM_DECAY = 5.0
     EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
 
+    mlm = 50.0
     epsilon = 0.2
     teacher_forcing = 0.5
 
@@ -261,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rql_criterion = RQLCriterionExp(RO, trg_vocab.stoi['<pad>'], MISTRANSLATION_LOSS_MULTIPLIER)
+    rql_criterion = RQLAdaptiveCriterion(RO, trg_vocab.stoi['<pad>'])
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
@@ -277,10 +278,11 @@ if __name__ == '__main__':
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print('Train loss: {}, PPL: {}, policy loss: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
+        print('Train loss: {}, PPL: {}, policy loss: {}, mlm: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(mlm, 2),round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
         print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
         lr_scheduler.step()
+        mlm = max(10.0, mlm - MLM_DECAY)
         epsilon = max(0.05, epsilon - EPSILON_DECAY)
         teacher_forcing = max(0.05, teacher_forcing - TEACHER_FORCING_DECAY)
 
