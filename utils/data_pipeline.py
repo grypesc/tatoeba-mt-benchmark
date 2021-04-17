@@ -29,6 +29,9 @@ class DataPipeline:
         val_data = self.tensor_from_files(val_filepath)
         test_data = self.tensor_from_files(test_filepath)
 
+        print("Loaded {} {} training sentences".format(len(train_data), prefix))
+        print("Loaded {} validating sentences".format(len(val_data)))
+
         generate_batch = self.generate_null_batch if null_replaces_bos else self.generate_bos_batch
         self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
         self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
@@ -60,9 +63,9 @@ class DataPipeline:
             pairs = pickle.load(f)
         data = []
         for pair in pairs:
-            en_tensor_ = torch.tensor([self.src_vocab[token] for token in pair[0]], dtype=torch.long)
-            spa_tensor_ = torch.tensor([self.trg_vocab[token] for token in pair[1]], dtype=torch.long)
-            data.append((en_tensor_, spa_tensor_))
+            src_tensor = torch.tensor([self.src_vocab[token] for token in pair[0]], dtype=torch.long)
+            trg_tensor = torch.tensor([self.trg_vocab[token] for token in pair[1]], dtype=torch.long)
+            data.append((src_tensor, trg_tensor))
         return data
 
     def generate_null_batch(self, data_batch):
