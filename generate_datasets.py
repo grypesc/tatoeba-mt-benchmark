@@ -2,23 +2,28 @@ import argparse
 import pickle
 import random
 
-from tatoebatools import ParallelCorpus
+from tatoebatools import tatoeba, ParallelCorpus
 from torchtext.data.utils import get_tokenizer
 
 random.seed(20)
+tatoeba.dir = "data/raw"
 
 lang_name_dict = {
     "en": "eng",
     "de": "deu",
     "fr": "fra",
-    "es": "spa"
+    "es": "spa",
+    "zh": "cmn",
+    "ru": "rus"
 }
 
 tokenizers_dict = {
     "en": "en_core_web_md",
     "de": "de_core_news_md",
     "fr": "fr_core_news_md",
-    "es": "es_core_news_md"
+    "es": "es_core_news_md",
+    "zh": "zh_core_web_md",
+    "ru": "ru_core_news_md"
 }
 
 if __name__ == '__main__':

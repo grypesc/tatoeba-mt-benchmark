@@ -1,7 +1,7 @@
-# atmt
-Approaches to machine translation  
-Machine translation algorithms and Tatoeba translation benchmark. Dataset is tokenized
-with Spacy tokenizer by DataPipeline object and tokens are transformed into FastText embeddings. Currently implemented:
+# tatoeba-machine-translation-benchmark
+Tatoeba machine translation benchmark and implementations of different seq2seq algorithms. This benchmark is focused on delivering
+high flexibility for research purposes. Dataset is tokenized with Spacy tokenizers during dataset generation phase.
+DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Currently implemented:
 * enc_dec_attn.py - Bidirectional encoder-decoder with attention.
 * rql.py - Recurrent Q-learning algorithm with agents translating on-line.
 
@@ -25,9 +25,11 @@ python -m spacy download en_core_web_md
 python -m spacy download es_core_news_md
 python -m spacy download fr_core_news_md
 python -m spacy download de_core_news_md
+python -m spacy download zh_core_web_md
+python -m spacy download ru_core_news_md
 ```
-Create desired datasets by running generate_dataset.py, currently there are 4 languages 
-supported: (en, es, fr, de), so that's 12 combinations:
+Create desired datasets by running generate_dataset.py, currently there are 6 languages 
+supported: (en, es, fr, de, zh, ru), so that's 30 combinations:
 
 ```python3
 python generate_datasets.py --src en --trg es
