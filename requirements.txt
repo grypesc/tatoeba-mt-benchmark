@@ -4,3 +4,4 @@ torch~=1.7.0
 torchtext~=0.8.0
 spacy~=3.0.0
 tatoebatools~=0.1.1
+tensorboard==2.4.1
