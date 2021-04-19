@@ -9,7 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rql_nets import Net, Net1, Net2
-from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLAdaptiveCriterion
+from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLAdaptiveCriterion, RQLCriterionV3
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -262,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rql_criterion = RQLAdaptiveCriterion(RO, trg_vocab.stoi['<pad>'])
+    rql_criterion = RQLCriterionV3(RO, trg_vocab.stoi['<pad>'], mlm)
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
