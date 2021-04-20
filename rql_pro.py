@@ -67,6 +67,9 @@ class RQL(nn.Module):
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
+        output_is_eos = torch.eq(trg, self.TRG_EOS)
+        trg_lengths = output_is_eos.max(0)[1]
+
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
@@ -116,7 +119,7 @@ class RQL(nn.Module):
                 _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
-                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
+                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0) / trg_lengths
                 Q_target[t, :] = reward + self.DISCOUNT * next_best_action_value
                 Q_target[t, terminated_agents.squeeze(0)] = 0
                 Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
@@ -228,8 +231,8 @@ if __name__ == '__main__':
     RNN_HID_DIM = 256
     RNN_NUM_LAYERS = 1
     DROPOUT = 0.0
-    DISCOUNT = 0.90
-    M = 3.0
+    DISCOUNT = 0.99
+    M = 1.0
     CLIP = 1.0
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 128
