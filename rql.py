@@ -9,7 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rql_nets import Net, Net1, Net2
-from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLAdaptiveCriterion, RQLCriterionV3
+from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLCriterionV3
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -70,7 +70,7 @@ class RQL(nn.Module):
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
-            input[naughty_agents] = self.SRC_PAD
+            input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
@@ -112,7 +112,7 @@ class RQL(nn.Module):
             with torch.no_grad():
                 _input = torch.gather(src, 0, i)
                 _input[writing_agents] = self.SRC_NULL
-                _input[naughty_agents] = self.SRC_PAD
+                _input[naughty_agents] = self.SRC_EOS
                 _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
@@ -149,7 +149,7 @@ class RQL(nn.Module):
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
-            input[naughty_agents] = self.SRC_PAD
+            input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
@@ -262,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rql_criterion = RQLCriterionV3(RO, trg_vocab.stoi['<pad>'], mlm)
+    rql_criterion = RQLCriterion(RO, trg_vocab.stoi['<pad>'])
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
