@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 
-class RQLCriterion(nn.Module):
+class RLSTCriterion(nn.Module):
 
     def __init__(self, ro, pad_index):
         super().__init__()
@@ -28,7 +28,7 @@ class RQLCriterion(nn.Module):
             return None, mistranslation_loss, None
 
 
-class RQLCriterionExp(nn.Module):
+class RLSTCriterionExp(nn.Module):
 
     def __init__(self, ro, pad_index, mistranslation_loss_multiplier):
         super().__init__()
@@ -66,7 +66,7 @@ class RQLCriterionExp(nn.Module):
             return None, mistranslation_loss, None
 
 
-class RQLCriterionV3(nn.Module):
+class RLSTCriterionV3(nn.Module):
 
     def __init__(self, ro, pad_index, mistranslation_loss_multiplier):
         super().__init__()

@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 class DataPipeline:
     """Provides vocabularies and data loaders for train, valid, test. Uses pretrained FastText embeddings. Can
     either use bos token which is always the first one in src and trg sequences or use null token, which is
-    useful for rql"""
+    useful for rlst"""
 
     def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False):
 

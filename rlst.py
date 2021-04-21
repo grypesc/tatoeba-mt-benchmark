@@ -8,17 +8,17 @@ import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
-from utils.rql_nets import Net, Net1, Net2
-from criterions.rql_criterion import RQLCriterion, RQLCriterionExp, RQLAdaptiveCriterion, RQLCriterionV3
+from utils.rlst_nets import Net, Net1, Net2
+from criterions.rlst_criterion import RLSTCriterion, RLSTCriterionExp, RLSTCriterionV3
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
 torch.manual_seed(20)
 
 
-class RQL(nn.Module):
+class RLST(nn.Module):
     """
-    This class implements RQL algorithm presented in the paper. Given batch size of n, it creates n partially observable
+    This class implements RLST algorithm presented in the paper. Given batch size of n, it creates n partially observable
     training or testing environments in which n agents operate in order to transform source sequences into the target ones.
     """
 
@@ -67,13 +67,10 @@ class RQL(nn.Module):
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
-        output_is_eos = torch.eq(trg, self.TRG_EOS)
-        trg_lengths = output_is_eos.max(0)[1]
-
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
-            input[naughty_agents] = self.SRC_PAD
+            input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
@@ -115,11 +112,11 @@ class RQL(nn.Module):
             with torch.no_grad():
                 _input = torch.gather(src, 0, i)
                 _input[writing_agents] = self.SRC_NULL
-                _input[naughty_agents] = self.SRC_PAD
+                _input[naughty_agents] = self.SRC_EOS
                 _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
-                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0) / trg_lengths
+                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
                 Q_target[t, :] = reward + self.DISCOUNT * next_best_action_value
                 Q_target[t, terminated_agents.squeeze(0)] = 0
                 Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
@@ -152,7 +149,7 @@ class RQL(nn.Module):
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
-            input[naughty_agents] = self.SRC_PAD
+            input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
@@ -183,7 +180,7 @@ class RQL(nn.Module):
 
 def train_epoch(epsilon, teacher_forcing):
     model.train()
-    rql_criterion.train()
+    rlst_criterion.train()
     epoch_mistranslation_loss = 0
     epoch_policy_loss = 0
 
@@ -196,7 +193,7 @@ def train_epoch(epsilon, teacher_forcing):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        loss, mistranslation_loss, policy_loss = rql_criterion(word_outputs, trg, Q_used, Q_target, mlm)
+        loss, mistranslation_loss, policy_loss = rlst_criterion(word_outputs, trg, Q_used, Q_target, mlm)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
@@ -207,7 +204,7 @@ def train_epoch(epsilon, teacher_forcing):
 
 def evaluate_epoch(loader, bleu_scorer):
     model.eval()
-    rql_criterion.eval()
+    rlst_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     with torch.no_grad():
@@ -219,7 +216,7 @@ def evaluate_epoch(loader, bleu_scorer):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            _, _mistranslation_loss, _ = rql_criterion(word_outputs_clipped, trg, 0, 0, mlm)
+            _, _mistranslation_loss, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0, mlm)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
@@ -231,8 +228,8 @@ if __name__ == '__main__':
     RNN_HID_DIM = 256
     RNN_NUM_LAYERS = 1
     DROPOUT = 0.0
-    DISCOUNT = 0.99
-    M = 1.0
+    DISCOUNT = 0.90
+    M = 3.0
     CLIP = 1.0
     RO = 0.99
     TESTING_EPISODE_MAX_TIME = 128
@@ -254,8 +251,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     net = Net(src_vocab, trg_vocab, RNN_HID_DIM, DROPOUT, RNN_NUM_LAYERS).to(device)
-    # net.load_state_dict(torch.load("checkpoints/rql_best_512x2.pth"))
-    model = RQL(net, device, TESTING_EPISODE_MAX_TIME, len(trg_vocab), DISCOUNT, M,
+    # net.load_state_dict(torch.load("checkpoints/rlst_best_512x2.pth"))
+    model = RLST(net, device, TESTING_EPISODE_MAX_TIME, len(trg_vocab), DISCOUNT, M,
                 src_vocab.stoi['<eos>'],
                 src_vocab.stoi['<null>'],
                 src_vocab.stoi['<pad>'],
@@ -265,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rql_criterion = RQLCriterionV3(RO, trg_vocab.stoi['<pad>'], mlm)
+    rlst_criterion = RLSTCriterion(RO, trg_vocab.stoi['<pad>'])
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
@@ -275,7 +272,7 @@ if __name__ == '__main__':
         start_time = time.time()
         train_loss, policy_loss, train_actions = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
-        # save_model(net, "checkpoints/rql", val_bleu > best_val_bleu)
+        # save_model(net, "checkpoints/rlst", val_bleu > best_val_bleu)
         # best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)

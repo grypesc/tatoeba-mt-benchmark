@@ -3,7 +3,7 @@ Tatoeba machine translation benchmark and implementations of different seq2seq a
 high flexibility for research purposes. Dataset is tokenized with Spacy tokenizers during dataset generation phase.
 DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Currently implemented:
 * enc_dec_attn.py - Bidirectional encoder-decoder with attention.
-* rql.py - Recurrent Q-learning algorithm with agents translating on-line.
+* rlst.py - Recurrent Q-learning algorithm with agents translating on-line.
 
 Setup:
 ```bash
