@@ -28,6 +28,13 @@ python -m spacy download de_core_news_md
 python -m spacy download zh_core_web_md
 python -m spacy download ru_core_news_md
 ```
+Download raw data from 21.04.2021 snapshot: 
+```bash
+wget 'https://www.dropbox.com/s/kuiseuq2rn5540s/21-04-2021-tatoeba.zip?dl=1' -O data/21-04-2021-tatoeba.zip
+unzip data/21-04-2021-tatoeba.zip -d data/
+```
+Alternatively, you can specify ```--update``` argument for generate_datasets.py to download the newest data from Tatoeba.
+
 Create desired datasets by running generate_dataset.py, currently there are 6 languages 
 supported: (en, es, fr, de, zh, ru), so that's 30 combinations:
 

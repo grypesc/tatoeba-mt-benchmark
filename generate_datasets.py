@@ -5,7 +5,7 @@ import random
 from tatoebatools import tatoeba, ParallelCorpus
 from torchtext.data.utils import get_tokenizer
 
-random.seed(20)
+random.seed(22)
 tatoeba.dir = "data/raw"
 
 lang_name_dict = {
@@ -27,6 +27,8 @@ tokenizers_dict = {
 }
 
 if __name__ == '__main__':
+    """This script generates train, valid, test datasets in pickle file format. Before running download raw data from
+    Tatoeba and put it inside data directory, check README.md for details."""
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--src',
@@ -45,10 +47,16 @@ if __name__ == '__main__':
                         help='max number of sentences to be split between train/val/test',
                         type=int,
                         default=10 ** 6)
+    parser.add_argument('--update',
+                        help='whether to download new data from Tatoeba, by default you should provide data from snapshot',
+                        default=False,
+                        action="store_true")
 
     args = parser.parse_args()
 
-    pairs = [[s.text, t.text] for s, t in ParallelCorpus(lang_name_dict[args.src], lang_name_dict[args.trg])]
+    pairs = [[s.text, t.text] for s, t in ParallelCorpus(lang_name_dict[args.src], lang_name_dict[args.trg], update=args.update)]
+    if len(pairs) == 0:
+        raise RuntimeError("No raw data inside data directory, please check out README.md")
     pairs = [[s.replace('\xa0', '') for s in pair] for pair in pairs]  # remove no breaking space, happens in tatoeba
     pairs = [[s.lower() for s in pair] for pair in pairs]
     random.shuffle(pairs)
