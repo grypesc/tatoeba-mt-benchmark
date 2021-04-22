@@ -193,7 +193,7 @@ def train_epoch(epsilon, teacher_forcing):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        loss, mistranslation_loss, policy_loss = rlst_criterion(word_outputs, trg, Q_used, Q_target, mlm)
+        loss, mistranslation_loss, policy_loss = rlst_criterion(word_outputs, trg, Q_used, Q_target, policy_divisor)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
@@ -216,7 +216,7 @@ def evaluate_epoch(loader, bleu_scorer):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            _, _mistranslation_loss, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0, mlm)
+            _, _mistranslation_loss, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0, policy_divisor)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
@@ -233,11 +233,11 @@ if __name__ == '__main__':
     CLIP = 1.0
     RHO = 0.99
     TESTING_EPISODE_MAX_TIME = 64
-    MLM_DECAY = 5.0
+    POLICY_DIVISOR_DECAY = 5.0
     EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
 
-    mlm = 30.0
+    policy_divisor = 30.0
     epsilon = 0.2
     teacher_forcing = 0.5
 
@@ -278,11 +278,11 @@ if __name__ == '__main__':
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print('Train loss: {}, PPL: {}, policy loss: {}, mlm: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(mlm, 2),round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
+        print('Train loss: {}, PPL: {}, policy loss: {}, policy_divisor: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(policy_divisor, 2),round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
         print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
         lr_scheduler.step()
-        mlm = max(10.0, mlm - MLM_DECAY)
+        policy_divisor = max(10.0, policy_divisor - POLICY_DIVISOR_DECAY)
         epsilon = max(0.05, epsilon - EPSILON_DECAY)
         teacher_forcing = max(0.05, teacher_forcing - TEACHER_FORCING_DECAY)
 
