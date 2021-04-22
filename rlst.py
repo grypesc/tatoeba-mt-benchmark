@@ -9,7 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rlst_nets import Net, Net1, Net2
-from criterions.rlst_criterion import RLSTCriterion, RLSTCriterionV2, RLSTCriterionV3
+from criterions.rlst_criterion import RLSTCriterion
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -231,8 +231,8 @@ if __name__ == '__main__':
     DISCOUNT = 0.90
     M = 3.0
     CLIP = 1.0
-    RO = 0.99
-    TESTING_EPISODE_MAX_TIME = 128
+    RHO = 0.99
+    TESTING_EPISODE_MAX_TIME = 64
     MLM_DECAY = 5.0
     EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
@@ -262,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rlst_criterion = RLSTCriterionV2(RO, trg_vocab.stoi['<pad>'])
+    rlst_criterion = RLSTCriterion(RHO, trg_vocab.stoi['<pad>'])
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
