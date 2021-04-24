@@ -65,13 +65,14 @@ if __name__ == '__main__':
     trg_tokenizer = get_tokenizer('spacy', language=tokenizers_dict[args.trg])
 
     tokenized_pairs = [[src_tokenizer(s), trg_tokenizer(t)] for s, t in pairs]
-    tokenized_pairs = [[s, t] for s, t in tokenized_pairs if len(s) <= args.max_sequence_length and len(t) <= args.max_sequence_length]
     tokenized_pairs_str = [[' '.join(src_word for src_word in tokenized_pair[0]), ' '.join(trg_word for trg_word in tokenized_pair[1])] for tokenized_pair in tokenized_pairs]
 
     unique_src_sentences_dict = {pair[0]: pair[1] for pair in tokenized_pairs_str}  # remove repeated src sentences
     pairs = [[src_sentence, unique_src_sentences_dict[src_sentence]] for src_sentence in unique_src_sentences_dict.keys()]
     pairs = [[pair[0].split(" "), pair[1].split(" ")] for pair in pairs]
+    long_pairs = [[s, t] for s, t in pairs if len(t) > args.max_sequence_length]
     pairs = pairs[:args.max_sentences]
+    pairs = [[s, t] for s, t in pairs if len(s) <= args.max_sequence_length and len(t) <= args.max_sequence_length]
 
     train_set = pairs[0:int(0.6 * len(pairs))]
     validation_set = pairs[int(0.6 * len(pairs)):int(0.8 * len(pairs))]
@@ -86,3 +87,6 @@ if __name__ == '__main__':
 
     with open("data/" + prefix + "_test.pickle", 'wb') as outfile:
         pickle.dump(test_set, outfile)
+
+    with open("data/" + prefix + "_test_long.pickle", 'wb') as outfile:
+        pickle.dump(long_pairs, outfile)

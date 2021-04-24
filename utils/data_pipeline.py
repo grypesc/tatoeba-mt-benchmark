@@ -22,20 +22,25 @@ class DataPipeline:
         train_filepath = "data/" + prefix + "_train.pickle"
         val_filepath = "data/" + prefix + "_valid.pickle"
         test_filepath = "data/" + prefix + "_test.pickle"
+        long_test_filepath = "data/" + prefix + "_test_long.pickle"
 
         self.src_vocab, self.trg_vocab = self.build_vocabs(train_filepath)
 
         train_data = self.tensor_from_files(train_filepath)
         val_data = self.tensor_from_files(val_filepath)
         test_data = self.tensor_from_files(test_filepath)
+        long_test_data = self.tensor_from_files(long_test_filepath)
 
         print("Loaded {} {} training sentences".format(len(train_data), prefix))
         print("Loaded {} validating sentences".format(len(val_data)))
+        print("Loaded {} test sentences".format(len(test_data)))
+        print("Loaded {} long-test sentences".format(len(long_test_data)))
 
         generate_batch = self.generate_null_batch if null_replaces_bos else self.generate_bos_batch
         self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
-        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
-        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
+        self.valid_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, collate_fn=generate_batch, num_workers=0)
+        self.test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, collate_fn=generate_batch, num_workers=0)
+        self.long_test_loader = DataLoader(long_test_data, batch_size=batch_size, shuffle=False, collate_fn=generate_batch, num_workers=0)
 
     def build_vocabs(self, filepath):
         src_counter, trg_counter = Counter(), Counter()
