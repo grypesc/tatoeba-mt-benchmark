@@ -10,7 +10,7 @@ from torch import Tensor
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, BleuScorer
+from utils.tools import epoch_time, BleuScorer, save_model
 
 random.seed(20)
 torch.manual_seed(20)
@@ -225,6 +225,7 @@ if __name__ == '__main__':
     attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
     dec = Decoder(OUTPUT_DIM, trg_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
     model = Seq2Seq(enc, dec, device, TEST_SEQUENCE_MAX_LENGTH).to(device)
+    # model.load_state_dict(torch.load("checkpoints/dec_enc.pth"))
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     criterion = nn.CrossEntropyLoss(ignore_index=trg_vocab.stoi['<pad>'])
@@ -232,18 +233,23 @@ if __name__ == '__main__':
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
     bleu_scorer = BleuScorer(trg_vocab, device)
+    best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()
         train_loss = train(model, train_loader, optimizer, criterion, CLIP)
         valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
+        save_model(model, "checkpoints/dec_enc", valid_bleu > best_val_bleu, epoch)
+        best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
+
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print(f'\tTrain loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
-        print(f'\tValid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}')
+        print(f'Train loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
+        print(f'Valid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}')
 
     test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
-
-    print(f'\tTest loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')
+    print(f'Test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')
+    test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer)
+    print(f'Long test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')

@@ -61,7 +61,7 @@ def actions_ratio(actions):
     return [round(action, 2) for action in a]
 
 
-def save_model(model, path, is_best):
+def save_model(model, path, is_best, epoch):
     if is_best:
-        torch.save(model.state_dict(), path + "_best.pth")
+        torch.save(model.state_dict(), path + "_best_{}.pth".format(epoch))
     torch.save(model.state_dict(), path + "_last.pth")

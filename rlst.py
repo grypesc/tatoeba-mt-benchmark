@@ -9,7 +9,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer
 from utils.rlst_nets import Net, Net1, Net2
-from criterions.rlst_criterion import RLSTCriterion
+from criterions.rlst_criterion import RLSTCriterion2
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -193,13 +193,13 @@ def train_epoch(epsilon, teacher_forcing):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.view(-1)
 
-        loss, mistranslation_loss, policy_loss = rlst_criterion(word_outputs, trg, Q_used, Q_target, policy_divisor)
+        loss, mistranslation_loss, policy_loss, policy_multiplier = rlst_criterion(word_outputs, trg, Q_used, Q_target, policy_divisor)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
         optimizer.step()
         epoch_mistranslation_loss += mistranslation_loss.item()
         epoch_policy_loss += policy_loss.item()
-    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist()
+    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist(), policy_multiplier
 
 
 def evaluate_epoch(loader, bleu_scorer):
@@ -216,7 +216,7 @@ def evaluate_epoch(loader, bleu_scorer):
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
             word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
             trg = trg.view(-1)
-            _, _mistranslation_loss, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0, policy_divisor)
+            _, _mistranslation_loss, _, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0, policy_divisor)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
 
@@ -232,10 +232,10 @@ if __name__ == '__main__':
     M = 3.0
     CLIP = 1.0
     RHO = 0.99
-    TESTING_EPISODE_MAX_TIME = 64
-    POLICY_DIVISOR_DECAY = 5.0
+    TESTING_EPISODE_MAX_TIME = 256
     EPSILON_DECAY = 0.00
     TEACHER_FORCING_DECAY = 0.00
+    N = 10_000
 
     policy_divisor = 30.0
     epsilon = 0.2
@@ -262,7 +262,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rlst_criterion = RLSTCriterion(RHO, trg_vocab.stoi['<pad>'])
+    rlst_criterion = RLSTCriterion2(RHO, trg_vocab.stoi['<pad>'], N)
 
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
 
@@ -270,22 +270,23 @@ if __name__ == '__main__':
     best_val_bleu = 0.0
     for epoch in range(N_EPOCHS):
         start_time = time.time()
-        train_loss, policy_loss, train_actions = train_epoch(epsilon, teacher_forcing)
+        train_loss, policy_loss, train_actions, last_policy_multiplier = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
-        # save_model(net, "checkpoints/rlst", val_bleu > best_val_bleu)
-        # best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
+        save_model(net, "checkpoints/rlst", val_bleu > best_val_bleu, epoch)
+        best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print('Train loss: {}, PPL: {}, policy loss: {}, policy_divisor: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(policy_divisor, 2),round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
+        print('Train loss: {}, PPL: {}, policy loss: {}, policy_multiplier: {}, epsilon: {}, teacher forcing: {}, action ratio: {}'.format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(epsilon, 2),  round(teacher_forcing, 2), actions_ratio(train_actions)))
         print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
         lr_scheduler.step()
-        policy_divisor = max(10.0, policy_divisor - POLICY_DIVISOR_DECAY)
         epsilon = max(0.05, epsilon - EPSILON_DECAY)
         teacher_forcing = max(0.05, teacher_forcing - TEACHER_FORCING_DECAY)
 
-    test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
-    print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
+    # test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
+    # print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
+    # test_loss, test_bleu, test_actions = evaluate_epoch(data.long_test_loader, bleu_scorer)
+    # print('Test-long loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
 
