@@ -1,6 +1,8 @@
+import argparse
 import math
-import time
+import os
 import random
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,7 +12,7 @@ from torch import Tensor
 from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, BleuScorer, save_model
+from utils.tools import epoch_time, BleuScorer, save_model, parse_utils
 
 random.seed(20)
 torch.manual_seed(20)
@@ -197,19 +199,35 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parse_utils(parser)
+    parser.add_argument('--test_seq_max_len',
+                        help='maximum length of sequence that can be produced during testing',
+                        type=int,
+                        default=64)
+    parser.add_argument('--enc_hid_dim',
+                        help='encoder hidden size',
+                        type=int,
+                        default=128)
+    parser.add_argument('--dec_hid_dim',
+                        help='decoder hidden size',
+                        type=int,
+                        default=128)
+    parser.add_argument('--attn_dim',
+                        help='attention layer size',
+                        type=int,
+                        default=32)
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
 
-    BATCH_SIZE = 128
-    N_EPOCHS = 30
-    ENC_HID_DIM = 128
-    DEC_HID_DIM = 128
-    ATTN_DIM = 32
+    args = parse_args()
     ENC_DROPOUT = 0.0  # This comes after pretrained embedding layers so in theory it's better not to increase it
     DEC_DROPOUT = 0.0
-    CLIP = 1
-    TEST_SEQUENCE_MAX_LENGTH = 64
 
-    data = DataPipeline(batch_size=BATCH_SIZE, src_lang="en", trg_lang="es")
+    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg)
     src_vocab = data.src_vocab
     trg_vocab = data.trg_vocab
     train_loader = data.train_loader
@@ -218,38 +236,41 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    INPUT_DIM = len(src_vocab)
-    OUTPUT_DIM = len(trg_vocab)
+    enc = Encoder(len(src_vocab), src_vocab.vectors.size()[1], args.enc_hid_dim, args.dec_hid_dim, ENC_DROPOUT)
+    attn = Attention(args.enc_hid_dim, args.dec_hid_dim, args.attn_dim)
+    dec = Decoder(len(trg_vocab), trg_vocab.vectors.size()[1], args.enc_hid_dim, args.dec_hid_dim, DEC_DROPOUT, attn)
+    model = Seq2Seq(enc, dec, device, args.test_seq_max_len).to(device)
 
-    enc = Encoder(INPUT_DIM, src_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
-    attn = Attention(ENC_HID_DIM, DEC_HID_DIM, ATTN_DIM)
-    dec = Decoder(OUTPUT_DIM, trg_vocab.vectors.size()[1], ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
-    model = Seq2Seq(enc, dec, device, TEST_SEQUENCE_MAX_LENGTH).to(device)
-    # model.load_state_dict(torch.load("checkpoints/dec_enc.pth"))
-
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(ignore_index=trg_vocab.stoi['<pad>'])
 
-    print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters')
+    if args.load_model_name:
+        model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
+
+    print(vars(args))
+    print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
 
     bleu_scorer = BleuScorer(trg_vocab, device)
     best_val_bleu = 0.0
-    for epoch in range(N_EPOCHS):
-        start_time = time.time()
-        train_loss = train(model, train_loader, optimizer, criterion, CLIP)
-        valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
-        save_model(model, "checkpoints/dec_enc", valid_bleu > best_val_bleu, epoch)
-        best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
+    if not args.test:
+        for epoch in range(args.epochs):
+            start_time = time.time()
+            train_loss = train(model, train_loader, optimizer, criterion, args.clip)
+            valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
-        end_time = time.time()
-        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+            save_model(model, os.path.join(args.checkpoint_dir, "enc_dec_attn"), valid_bleu > best_val_bleu)
+            best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
 
-        print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print(f'Train loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
-        print(f'Valid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}')
+            end_time = time.time()
+            epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
-    print(f'Test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')
-    test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer)
-    print(f'Long test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')
+            print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+            print(f'Train loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}')
+            print(f'Valid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}\n')
+
+    else:
+        test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
+        print(f'Test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')
+        test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer)
+        print(f'Long test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}')

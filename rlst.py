@@ -272,7 +272,7 @@ if __name__ == '__main__':
         start_time = time.time()
         train_loss, policy_loss, train_actions, last_policy_multiplier = train_epoch(epsilon, teacher_forcing)
         val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
-        save_model(net, "checkpoints/rlst", val_bleu > best_val_bleu, epoch)
+        save_model(net, "checkpoints/rlst", val_bleu > best_val_bleu)
         best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
         end_time = time.time()
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)

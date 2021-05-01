@@ -42,4 +42,12 @@ supported: (en, es, fr, de, zh, ru), so that's 30 combinations:
 python generate_datasets.py --src en --trg es
 ```
 
-Now you are good to run any algorithm you want :).
+Now you can run algorithms from command line:
+```python3
+python enc_dec_attn.py --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
+```
+
+Type for more info:
+```python3
+python enc_dec_attn.py --help
+```

@@ -34,7 +34,7 @@ class DataPipeline:
         print("Loaded {} {} training sentences".format(len(train_data), prefix))
         print("Loaded {} validating sentences".format(len(val_data)))
         print("Loaded {} test sentences".format(len(test_data)))
-        print("Loaded {} long-test sentences".format(len(long_test_data)))
+        print("Loaded {} long-test sentences\n".format(len(long_test_data)))
 
         generate_batch = self.generate_null_batch if null_replaces_bos else self.generate_bos_batch
         self.train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=generate_batch, num_workers=0)
