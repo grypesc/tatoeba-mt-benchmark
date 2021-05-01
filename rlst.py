@@ -241,7 +241,7 @@ def parse_args():
                         default=1)
     parser.add_argument('--rnn_dropout',
                         help='dropout between rnn layers',
-                        type=int,
+                        type=float,
                         default=0.00)
     parser.add_argument('--discount',
                         help='discount',
