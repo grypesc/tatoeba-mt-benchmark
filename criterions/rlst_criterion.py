@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 
+
 class RLSTCriterion(nn.Module):
 
     def __init__(self, rho, pad_index):
@@ -41,7 +42,7 @@ class RLSTCriterion2(nn.Module):
         self.n = -1
         self.N = N
 
-    def forward(self, word_outputs, trg, Q_used, Q_target, _):
+    def forward(self, word_outputs, trg, Q_used, Q_target):
         mistranslation_loss = self.mistranslation_criterion(word_outputs, trg)
         if self.training:
             self.n += 1
