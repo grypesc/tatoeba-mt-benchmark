@@ -8,7 +8,7 @@ DataPipeline objects deliver vocabs containing FastText embeddings and Torch dat
 Setup:
 ```bash
 git clone https://github.com/grypesc/atmt
-cd atmt && mkdir data
+cd atmt && mkdir data && mkdir checkpoints
 ```
 Or
 ```bash
