@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 
 from torchtext.data.metrics import bleu_score
@@ -62,6 +64,7 @@ def actions_ratio(actions):
 
 
 def save_model(model, path, is_best):
+    Path(path).mkdir(parents=True, exist_ok=True)
     if is_best:
         torch.save(model.state_dict(), path + "_best.pth")
     torch.save(model.state_dict(), path + "_last.pth")
