@@ -7,7 +7,7 @@ DataPipeline objects deliver vocabs containing FastText embeddings and Torch dat
 
 Setup:
 ```bash
-git clone https://github.com/grypesc/atmt
+git clone https://github.com/grypesc/tatoeba-mt-benchmark
 cd atmt && mkdir data && mkdir checkpoints
 ```
 Or
@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --epochs 30 --en
 ```python3 
 CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --checkpoint_dir checkpoints \
 --testing_episode_max_time 64 --batch_size 128 --lr 1e-3 --clip 1.0 --weight_decay 1e-5 \ 
---rnn_hid_dim 768 --rnn_num_layers 2 --rnn_dropout 0.2 --epsilon 0.15 --N 50000 --discount 0.90 \
+--rnn_hid_dim 768 --rnn_num_layers 2 --rnn_dropout 0.2 --epsilon 0.15 --N 50000 --discount 0.90
 ```
 Models are saved and evaluated on validation set after every epoch.
 To test models on test and long test sets use:
