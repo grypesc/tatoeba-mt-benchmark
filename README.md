@@ -1,7 +1,7 @@
 # tatoeba-machine-translation-benchmark
-Tatoeba machine translation benchmark and implementations of different seq2seq algorithms. This benchmark is focused on delivering
+Tatoeba machine translation benchmark supporting 30 pairs of languages. This benchmark is focused on delivering
 high flexibility for research purposes. Dataset is tokenized with Spacy tokenizers during dataset generation phase.
-DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Currently implemented:
+DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Currently implemented models:
 * enc_dec_attn.py - Bidirectional encoder-decoder with attention.
 * rlst.py - Recurrent Q-learning algorithm with agents translating on-line.
 
@@ -13,7 +13,7 @@ cd atmt && mkdir data && mkdir checkpoints
 Or
 ```bash
 git clone https://ben.ii.pw.edu.pl/gitlab/recurrent-graph-networks/mt
-cd mt && mkdir data
+cd mt && mkdir data && mkdir checkpoints
 ```
 Then:
 ```bash
@@ -42,12 +42,25 @@ supported: (en, es, fr, de, zh, ru), so that's 30 combinations:
 python generate_datasets.py --src en --trg es
 ```
 
-Now you can run algorithms from command line:
+Now you can train models using command line:
 ```python3
-python enc_dec_attn.py --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
+CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --epochs 30 --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
+```
+```python3 
+CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --checkpoint_dir checkpoints \
+--testing_episode_max_time 64 --batch_size 128 --lr 1e-3 --clip 1.0 --weight_decay 1e-5 \ 
+--rnn_hid_dim 768 --rnn_num_layers 2 --rnn_dropout 0.2 --epsilon 0.15 --N 50000 --discount 0.90 \
+```
+Models are saved and evaluated on validation set after every epoch.
+To test models on test and long test sets use:
+```python3
+CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --test --batch_size 32 --test_seq_max_len 256 \
+--load_model_name enc_dec_attn_best.pth --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
 ```
 
-Type for more info:
+Type for more info and hyperparameters:
 ```python3
-python enc_dec_attn.py --help
+python rlst.py --help
 ```
+
+Feel free to add new models, suggestions and make PRs :smiling_face_with_three_hearts:.
