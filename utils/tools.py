@@ -1,7 +1,6 @@
-from pathlib import Path
-
 import torch
 
+from pathlib import Path
 from torchtext.data.metrics import bleu_score
 
 
