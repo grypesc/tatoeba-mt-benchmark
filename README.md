@@ -1,14 +1,15 @@
 # tatoeba-machine-translation-benchmark
 Tatoeba machine translation benchmark supporting 30 pairs of languages. This benchmark is focused on delivering
-high flexibility for research purposes. Dataset is tokenized with Spacy tokenizers during dataset generation phase.
-DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Currently implemented models:
+high flexibility for research purposes. Datasets are tokenized with Spacy tokenizers during dataset generation phase.
+DataPipeline objects deliver vocabs containing FastText embeddings and Torch data loaders. Main evaluation method is
+perplexity and BLEU score based on torchtext implementation. Currently implemented models:
 * enc_dec_attn.py - Bidirectional encoder-decoder with attention.
 * rlst.py - Recurrent Q-learning algorithm with agents translating on-line.
 
 Setup:
 ```bash
 git clone https://github.com/grypesc/tatoeba-mt-benchmark
-cd atmt && mkdir data && mkdir checkpoints
+cd tatoeba-mt-benchmark && mkdir data && mkdir checkpoints
 ```
 Or
 ```bash
@@ -63,4 +64,4 @@ Type for more info and hyperparameters:
 python rlst.py --help
 ```
 
-Feel free to add new models, suggestions and make PRs :smiling_face_with_three_hearts:.
+Feel free to add new models, suggestions, issues and make PRs :smiling_face_with_three_hearts:.
