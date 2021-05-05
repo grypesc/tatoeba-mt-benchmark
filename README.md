@@ -48,7 +48,7 @@ Now you can train models using command line:
 CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --epochs 30 --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
 ```
 ```python3 
-CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --checkpoint_dir checkpoints \
+CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --token_min_freq 1 --checkpoint_dir checkpoints \
 --testing_episode_max_time 64 --batch_size 128 --lr 1e-3 --clip 1.0 --weight_decay 1e-5 \ 
 --rnn_hid_dim 768 --rnn_num_layers 2 --rnn_dropout 0.2 --epsilon 0.15 --N 50000 --discount 0.90
 ```

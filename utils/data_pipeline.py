@@ -12,11 +12,12 @@ class DataPipeline:
     either use bos token which is always the first one in src and trg sequences or use null token, which is
     useful for rlst"""
 
-    def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False):
+    def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False, token_min_freq=1):
 
         self.src_lang = src_lang
         self.trg_lang = trg_lang
         self.bos_or_null_token = "<null>" if null_replaces_bos else "<bos>"
+        self.token_min_freq = token_min_freq
 
         prefix = src_lang + "_" + trg_lang
         train_filepath = "data/" + prefix + "_train.pickle"
@@ -54,7 +55,7 @@ class DataPipeline:
         return src_vocab, trg_vocab
 
     def vocab_from_counter(self, counter, lang):
-        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], vectors=FastText(language=lang, max_vectors=1000_000))
+        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], min_freq=self.token_min_freq, vectors=FastText(language=lang, max_vectors=1000_000))
         zero_vec = torch.zeros(vocab.vectors.size()[0])
         zero_vec = torch.unsqueeze(zero_vec, dim=1)
         vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)

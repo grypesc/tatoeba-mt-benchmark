@@ -78,6 +78,10 @@ def parse_utils(parser):
                         help='target language',
                         type=str,
                         default='es')
+    parser.add_argument('--token_min_freq',
+                        help='minimum frequency for a token to be included in vocabulary, if excluded it is <unk>',
+                        type=int,
+                        default=1)
     parser.add_argument('--checkpoint_dir',
                         help='directory where models will be saved and loaded from',
                         type=str,

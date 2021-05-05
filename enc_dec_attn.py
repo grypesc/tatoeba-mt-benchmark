@@ -227,7 +227,7 @@ if __name__ == '__main__':
     ENC_DROPOUT = 0.0  # This comes after pretrained embedding layers so in theory it's better not to increase it
     DEC_DROPOUT = 0.0
 
-    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg)
+    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg, token_min_freq=args.token_min_freq)
     src_vocab = data.src_vocab
     trg_vocab = data.trg_vocab
     train_loader = data.train_loader
