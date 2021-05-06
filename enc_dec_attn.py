@@ -259,7 +259,7 @@ if __name__ == '__main__':
             train_loss = train(model, train_loader, optimizer, criterion, args.clip)
             valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
-            save_model(model, os.path.join(args.checkpoint_dir, "enc_dec_attn"), valid_bleu > best_val_bleu)
+            save_model(model, args.checkpoint_dir, "enc_dec_attn", valid_bleu > best_val_bleu)
             best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
 
             end_time = time.time()

@@ -1,3 +1,4 @@
+import os
 import torch
 
 from pathlib import Path
@@ -62,11 +63,11 @@ def actions_ratio(actions):
     return [round(action, 2) for action in a]
 
 
-def save_model(model, path, is_best):
+def save_model(model, path, model_name, is_best):
     Path(path).mkdir(parents=True, exist_ok=True)
     if is_best:
-        torch.save(model.state_dict(), path + "_best.pth")
-    torch.save(model.state_dict(), path + "_last.pth")
+        torch.save(model.state_dict(), os.path.join(path, model_name + "_best.pth"))
+    torch.save(model.state_dict(), os.path.join(path, model_name + "_last.pth"))
 
 
 def parse_utils(parser):
