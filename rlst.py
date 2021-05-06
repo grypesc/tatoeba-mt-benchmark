@@ -43,7 +43,7 @@ class RLST(nn.Module):
 
         self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
 
-    def forward(self, src, trg, epsilon, teacher_forcing):
+    def forward(self, src, trg=None, epsilon=0, teacher_forcing=0):
         if self.training:
             return self._training_episode(src, trg, epsilon, teacher_forcing)
         return self._testing_episode(src)
@@ -212,7 +212,7 @@ def evaluate_epoch(loader, bleu_scorer):
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.to(device), trg.to(device)
-            word_outputs, _, _, actions = model(src, trg, 0, 0)
+            word_outputs, _, _, actions = model(src)
             total_actions += actions.cumsum(dim=1)
             bleu_scorer.register_minibatch(word_outputs, trg)
             word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
@@ -324,7 +324,7 @@ if __name__ == '__main__':
 
     else:
         test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
-        print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
+        print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
         test_loss, test_bleu, test_actions = evaluate_epoch(data.long_test_loader, bleu_scorer)
         print('Test-long loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
 
