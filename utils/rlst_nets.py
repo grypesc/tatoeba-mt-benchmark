@@ -19,6 +19,7 @@ class Net(nn.Module):
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
         self.rnn = nn.GRU(src_emb_dim + trg_emb_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=dropout)
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
+        nn.init.constant_(self.output[-3:], -10.0)
 
     def forward(self, src, previous_output, rnn_state):
         src_embedded = self.src_embedding(src)
