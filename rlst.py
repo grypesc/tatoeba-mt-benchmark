@@ -10,8 +10,8 @@ import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
-from utils.rlst_nets import Net, Net1, Net2
-from criterions.rlst_criterion import RLSTCriterion2
+from models.rlst.nets import Net
+from criterions.rlst_criterion import RLSTCriterion
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -264,6 +264,14 @@ def parse_args():
                              'asymptote/maximum value',
                         type=float,
                         default=100_000)
+    parser.add_argument('--eta_min',
+                        help='minimum eta value',
+                        type=float,
+                        default=0.03)
+    parser.add_argument('--eta_max',
+                        help='eta maximum value, its asymptote',
+                        type=float,
+                        default=0.3)
     parser.add_argument('--rho',
                         help='rho for moving exponential average of losses weights',
                         type=float,
@@ -283,7 +291,8 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    net = Net(src_vocab, trg_vocab, args.rnn_hid_dim, args.rnn_dropout, args.rnn_num_layers).to(device)
+    net = Net(src_vocab, trg_vocab, args.use_pretrained_embeddings, args.rnn_hid_dim, args.rnn_dropout, args.rnn_num_layers,
+              args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
     if args.load_model_name:
         net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
     model = RLST(net, device, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
@@ -296,7 +305,7 @@ if __name__ == '__main__':
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
-    rlst_criterion = RLSTCriterion2(args.rho, trg_vocab.stoi['<pad>'], args.N)
+    rlst_criterion = RLSTCriterion(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max)
 
     print(vars(args))
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
@@ -317,7 +326,7 @@ if __name__ == '__main__':
             epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
             print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-            print('Train loss: {}, PPL: {}, policy loss: {}, policy_multiplier: {}, epsilon: {}, action ratio: {}'
+            print('Train loss: {}, PPL: {}, policy loss: {}, plm: {}, epsilon: {}, action ratio: {}'
                   .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
             print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
             lr_scheduler.step()

@@ -95,10 +95,26 @@ def parse_utils(parser):
                         help='perform test on testing and long testing sets, model will be loaded from checkpoint_dir',
                         default=False,
                         action="store_true")
+    parser.add_argument('--use_pretrained_embeddings',
+                        help='whether to use pretrained FastText embeddings',
+                        default=False,
+                        action="store_true")
+    parser.add_argument('--src_embed_dim',
+                        help='size of source language embedding layer',
+                        type=int,
+                        default=256)
+    parser.add_argument('--trg_embed_dim',
+                        help='size of target language embedding layer',
+                        type=int,
+                        default=256)
+    parser.add_argument('--embed_dropout',
+                        help='dropout after source and target embeddings',
+                        type=float,
+                        default=0.0)
     parser.add_argument('--batch_size',
                         help='mini batch size',
                         type=int,
-                        default=64)
+                        default=128)
     parser.add_argument('--epochs',
                         help='number of epochs',
                         type=int,
@@ -106,7 +122,7 @@ def parse_utils(parser):
     parser.add_argument('--clip',
                         help='gradient clipping',
                         type=float,
-                        default=1.0)
+                        default=10.0)
     parser.add_argument('--lr',
                         help='learning_rate',
                         type=float,
