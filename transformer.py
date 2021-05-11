@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from transformer_model.transformer import Transformer
 from utils.data_pipeline import DataPipeline
-from utils.tools import BleuScorer, epoch_time, parse_utils
+from utils.tools import BleuScorer, epoch_time, parse_utils, str2bool
 
 random.seed(12)
 torch.manual_seed(12)
@@ -96,7 +96,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
     parser.add_argument(
-        "--use_pretrained_embeddings", help="Defines if to use pretrained embeddings", type=bool, default=True
+        "--use_pretrained_embeddings", help="Defines if to use pretrained embeddings", type=str, default="y"
     )
     parser.add_argument("--warmup_steps", help="Defines warmup steps during training", type=int, default=4000)
     parser.add_argument("--learning_rate", help="Defines initial learning rate", type=float, default=0.0001)
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     BATCH_SIZE = args.batch_size
-    if args.use_pretrained_embeddings:
+    if str2bool(args.use_pretrained_embeddings):
         D_MODEL = 303
         NHEAD = 3
     else:
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     TRG_PAD = trg_vocab.stoi["<pad>"]
     TRG_BOS = trg_vocab.stoi["<bos>"]
     src_embeddings, trg_embeddings = None, None
-    if args.use_pretrained_embeddings:
+    if str2bool(args.use_pretrained_embeddings):
         src_embeddings = src_vocab.vectors
         trg_embeddings = trg_vocab.vectors
 
