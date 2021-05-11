@@ -24,7 +24,8 @@ class Encoder(nn.Module):
                  emb_dim: int,
                  enc_hid_dim: int,
                  dec_hid_dim: int,
-                 dropout: float):
+                 dropout: float,
+                 use_pretrained_embeddings=False):
         super().__init__()
 
         self.input_dim = input_dim
@@ -32,14 +33,15 @@ class Encoder(nn.Module):
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout
-
-        self.embedding = nn.Embedding(input_dim, emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU(emb_dim, enc_hid_dim, num_layers=1, bidirectional=True)
+        self.embedding = nn.Embedding(input_dim, emb_dim)
+        if use_pretrained_embeddings:
+            self.emb_dim = src_vocab.vectors.shape[1]
+            self.embedding = nn.Embedding(input_dim, self.emb_dim).from_pretrained(src_vocab.vectors, freeze=True)
+        self.rnn = nn.GRU(self.emb_dim, enc_hid_dim, num_layers=1, bidirectional=True)
         self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self,
-                src: Tensor) -> Tuple[Tensor]:
+    def forward(self, src):
         embedded = self.dropout(self.embedding(src))
         outputs, hidden = self.rnn(embedded)
         hidden = torch.tanh(self.fc(torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1)))
@@ -77,7 +79,8 @@ class Decoder(nn.Module):
                  enc_hid_dim: int,
                  dec_hid_dim: int,
                  dropout: float,
-                 attention: nn.Module):
+                 attention: nn.Module,
+                 use_pretrained_embeddings=False):
         super().__init__()
 
         self.emb_dim = emb_dim
@@ -87,9 +90,12 @@ class Decoder(nn.Module):
         self.dropout = dropout
         self.attention = attention
 
-        self.embedding = nn.Embedding(output_dim, emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
-        self.rnn = nn.GRU((enc_hid_dim * 2) + emb_dim, dec_hid_dim)
-        self.out = nn.Linear(self.attention.attn_in + emb_dim, output_dim)
+        self.embedding = nn.Embedding(output_dim, emb_dim)
+        if use_pretrained_embeddings:
+            self.emb_dim = trg_vocab.vectors.shape[1]
+            self.embedding = nn.Embedding(output_dim, self.emb_dim).from_pretrained(trg_vocab.vectors, freeze=True)
+        self.rnn = nn.GRU((enc_hid_dim * 2) + self.emb_dim, dec_hid_dim)
+        self.out = nn.Linear(self.attention.attn_in + self.emb_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
 
     def _weighted_encoder_rep(self,
@@ -105,7 +111,7 @@ class Decoder(nn.Module):
     def forward(self,
                 input: Tensor,
                 decoder_hidden: Tensor,
-                encoder_outputs: Tensor) -> Tuple[Tensor]:
+                encoder_outputs: Tensor):
         input = input.unsqueeze(0)
         embedded = self.dropout(self.embedding(input))
         weighted_encoder_rep = self._weighted_encoder_rep(decoder_hidden,
@@ -138,10 +144,7 @@ class Seq2Seq(nn.Module):
         self.device = device
         self.max_len = max_len
 
-    def forward(self,
-                src: Tensor,
-                trg: Tensor,
-                teacher_forcing_ratio: float = 0.5) -> Tensor:
+    def forward(self, src, trg, teacher_forcing_ratio):
         batch_size = src.shape[1]
 
         max_len = self.max_len
@@ -172,7 +175,7 @@ def train(model, data_loader, optimizer, criterion, clip):
     for _, (src, trg) in enumerate(data_loader):
         src, trg = src.to(device), trg.to(device)
         optimizer.zero_grad()
-        output = model(src, trg)
+        output = model(src, trg, 0.5)
         output = output[1:].view(-1, output.shape[-1])
         trg = trg[1:].view(-1)
         loss = criterion(output, trg)
@@ -189,7 +192,7 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     with torch.no_grad():
         for _, (src, trg) in enumerate(data_loader):
             src, trg = src.to(device), trg.to(device)
-            output = model(src, trg, 0)  # turn off teacher forcing
+            output = model(src, trg, 0.0)  # turn off teacher forcing
             bleu_scorer.register_minibatch(output[1:, :, :], trg[1:, :])
             output_clipped = output[:trg.size()[0], :, :]
             output_clipped = output_clipped[1:].view(-1, output_clipped.shape[-1])
@@ -224,8 +227,6 @@ def parse_args():
 if __name__ == '__main__':
 
     args = parse_args()
-    ENC_DROPOUT = 0.0  # This comes after pretrained embedding layers so in theory it's better not to increase it
-    DEC_DROPOUT = 0.0
 
     data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg, token_min_freq=args.token_min_freq)
     src_vocab = data.src_vocab
@@ -236,9 +237,9 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    enc = Encoder(len(src_vocab), src_vocab.vectors.size()[1], args.enc_hid_dim, args.dec_hid_dim, ENC_DROPOUT)
+    enc = Encoder(len(src_vocab), args.src_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, args.use_pretrained_embeddings)
     attn = Attention(args.enc_hid_dim, args.dec_hid_dim, args.attn_dim)
-    dec = Decoder(len(trg_vocab), trg_vocab.vectors.size()[1], args.enc_hid_dim, args.dec_hid_dim, DEC_DROPOUT, attn)
+    dec = Decoder(len(trg_vocab), args.trg_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, attn, args.use_pretrained_embeddings)
     model = Seq2Seq(enc, dec, device, args.test_seq_max_len).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

@@ -45,7 +45,7 @@ python generate_datasets.py --src en --trg es
 
 Now you can train models using command line:
 ```python3
-CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --epochs 30 --enc_hid_dim 128 --dec_hid_dim 128 --attn_dim 32
+CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --token_min_freq 3 --epochs 30 --embed_dropout 0.2 --enc_hid_dim 256 --dec_hid_dim 256 --attn_dim 64
 ```
 ```python3 
 CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --token_min_freq 1 --checkpoint_dir checkpoints \
