@@ -8,11 +8,11 @@ from torch.utils.data import DataLoader
 
 
 class DataPipeline:
-    """Provides vocabularies and data loaders for train, valid, test. Uses pretrained FastText embeddings. Can
-    either use bos token which is always the first one in src and trg sequences or use null token, which is
-    useful for rlst"""
+    """Provides vocabularies and data loaders for train, valid, test and will download and use pretrained FastText
+     embeddings, if specified. Can either use bos token which is always the first one in src and trg sequences or use
+     null token, which is useful for RLST"""
 
-    def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False, token_min_freq=1):
+    def __init__(self, batch_size, src_lang, trg_lang, null_replaces_bos=False, token_min_freq=1, use_pretrained_embeds=False):
 
         self.src_lang = src_lang
         self.trg_lang = trg_lang
@@ -25,7 +25,7 @@ class DataPipeline:
         test_filepath = "data/" + prefix + "_test.pickle"
         long_test_filepath = "data/" + prefix + "_test_long.pickle"
 
-        self.src_vocab, self.trg_vocab = self.build_vocabs(train_filepath)
+        self.src_vocab, self.trg_vocab = self.build_vocabs(train_filepath, use_pretrained_embeds)
 
         train_data = self.tensor_from_files(train_filepath)
         val_data = self.tensor_from_files(val_filepath)
@@ -45,25 +45,27 @@ class DataPipeline:
         print("Source vocabulary has {} unique tokens".format(len(self.src_vocab)))
         print("Target vocabulary has {} unique tokens\n".format(len(self.trg_vocab)))
 
-    def build_vocabs(self, filepath):
+    def build_vocabs(self, filepath, use_pretrained_embeds):
         src_counter, trg_counter = Counter(), Counter()
         with open(filepath, 'rb') as f:
             pairs = pickle.load(f)
         for pair in pairs:
             src_counter.update(pair[0])
             trg_counter.update(pair[1])
-        src_vocab = self.vocab_from_counter(src_counter, self.src_lang)
-        trg_vocab = self.vocab_from_counter(trg_counter, self.trg_lang)
+        src_vocab = self.vocab_from_counter(src_counter, self.src_lang, use_pretrained_embeds)
+        trg_vocab = self.vocab_from_counter(trg_counter, self.trg_lang, use_pretrained_embeds)
         return src_vocab, trg_vocab
 
-    def vocab_from_counter(self, counter, lang):
-        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], min_freq=self.token_min_freq, vectors=FastText(language=lang, max_vectors=1000_000))
-        zero_vec = torch.zeros(vocab.vectors.size()[0])
-        zero_vec = torch.unsqueeze(zero_vec, dim=1)
-        vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
-        vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
-        vocab.vectors[vocab['<pad>']][1] = 1
-        vocab.vectors[vocab['<eos>']][2] = 1
+    def vocab_from_counter(self, counter, lang, use_pretrained_embeds):
+        vectors = FastText(language=lang, max_vectors=1000_000) if use_pretrained_embeds else None
+        vocab = Vocab(counter, specials=['<unk>', self.bos_or_null_token, '<pad>',  '<eos>'], min_freq=self.token_min_freq, vectors=vectors)
+        if use_pretrained_embeds:
+            zero_vec = torch.zeros(vocab.vectors.size()[0])
+            zero_vec = torch.unsqueeze(zero_vec, dim=1)
+            vocab.vectors = torch.cat((zero_vec, zero_vec, zero_vec, vocab.vectors), dim=1)
+            vocab.vectors[vocab[self.bos_or_null_token]][0] = 1
+            vocab.vectors[vocab['<pad>']][1] = 1
+            vocab.vectors[vocab['<eos>']][2] = 1
         return vocab
 
     def tensor_from_files(self, filepath):
