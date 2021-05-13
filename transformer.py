@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import random
 import time
 from typing import Tuple
@@ -13,7 +14,7 @@ from torch.utils.data import DataLoader
 
 from transformer_model.transformer import Transformer
 from utils.data_pipeline import DataPipeline
-from utils.tools import BleuScorer, epoch_time, parse_utils, str2bool
+from utils.tools import BleuScorer, epoch_time, parse_utils, save_model
 
 torch.set_printoptions(threshold=10_000)
 random.seed(12)
@@ -97,7 +98,12 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
     parser.add_argument("--warmup_steps", help="Defines warmup steps during training", type=int, default=4000)
-    parser.add_argument("--learning_rate", help="Defines initial learning rate", type=float, default=0.0001)
+    parser.add_argument("--lr", help="Defines initial learning rate", type=float, default=0.0001)
+    parser.add_argument("--d_model", help="Transformer model d_model param", type=int, default=512)
+    parser.add_argument("--num_heads", help="Transformer model atention heads number", type=int, default=8)
+    parser.add_argument("--num_layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
+    parser.add_argument("--d_ffn", help="Transformer model ffn network internal dimension", type=int, default=2048)
+    parser.add_argument("--dropout", help="Dropout rate", type=float, default=0.1)
 
     return parser.parse_args()
 
@@ -110,12 +116,12 @@ if __name__ == "__main__":
         D_MODEL = 303
         NHEAD = 3
     else:
-        D_MODEL = 512
-        NHEAD = 8
-    NUM_LAYERS = 6
-    DIM_FEEDFORWARD = 2048
-    DROPOUT = 0.1
-    CLIP = 1.0
+        D_MODEL = args.d_model
+        NHEAD = args.num_heads
+    NUM_LAYERS = args.num_layers
+    DIM_FEEDFORWARD = args.d_ffn
+    DROPOUT = args.dropout
+    CLIP = args.clip
     MAX_LEN = 100
     N_EPOCHS = args.epochs
     LEARNING_RATE = args.learning_rate
@@ -133,7 +139,13 @@ if __name__ == "__main__":
         "drop_out_rate": DROPOUT,
     }
 
-    data = DataPipeline(batch_size=BATCH_SIZE, src_lang=args.src, trg_lang=args.trg)
+    data = DataPipeline(
+        batch_size=BATCH_SIZE,
+        src_lang=args.src,
+        trg_lang=args.trg,
+        token_min_freq=args.token_min_freq,
+        use_pretrained_embeds=args.use_pretrained_embeddings,
+    )
     src_vocab = data.src_vocab
     trg_vocab = data.trg_vocab
     train_loader = data.train_loader
@@ -162,22 +174,34 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98))
     scheduler = Adjuster(optimizer, D_MODEL, WARMUP_STEPS)
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
-    bleu_scorer = BleuScorer(trg_vocab, device)
 
+    if args.load_model_name:
+        model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
+
+    bleu_scorer = BleuScorer(trg_vocab, device)
+    best_val_bleu = 0.0
+
+    print(vars(args))
     print(f"The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters")
 
-    for epoch in range(N_EPOCHS):
-        start_time = time.time()
-        train_loss = train(model, train_loader, optimizer, criterion, CLIP, scheduler)
-        valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
+    if not args.test:
+        for epoch in range(N_EPOCHS):
+            start_time = time.time()
+            train_loss = train(model, train_loader, optimizer, criterion, CLIP, scheduler)
+            valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
-        end_time = time.time()
-        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+            save_model(model, args.checkpoint_dir, "transformer", valid_bleu > best_val_bleu)
+            best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
 
-        print(f"Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s")
-        print(f"\tTrain Loss: {train_loss} | Train PPL: {math.exp(train_loss):7.3f}")
-        print(f"\tValid loss: {valid_loss}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}")
+            end_time = time.time()
+            epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
+            print(f"Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s")
+            print(f"Train loss: {train_loss:.3f}, PPL: {math.exp(train_loss):7.3f}")
+            print(f"Valid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}\n")
 
-    print(f"\tTest loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}")
+    else:
+        test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
+        print(f"Test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}")
+        test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer)
+        print(f"Long test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}")
