@@ -29,7 +29,6 @@ class Net(nn.Module):
 
         self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=rnn_dropout)
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
-        nn.init.constant_(self.output.bias[-3:], -10.0)
 
     def forward(self, src, previous_output, rnn_state):
         src_embedded = self.embedding_dropout(self.src_embedding(src))

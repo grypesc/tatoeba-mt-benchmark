@@ -282,7 +282,8 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
-    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg, null_replaces_bos=True, token_min_freq=args.token_min_freq)
+    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg, null_replaces_bos=True,
+                        token_min_freq=args.token_min_freq, use_pretrained_embeds=args.use_pretrained_embeddings)
     src_vocab = data.src_vocab
     trg_vocab = data.trg_vocab
     train_loader = data.train_loader
