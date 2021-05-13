@@ -15,6 +15,7 @@ from transformer_model.transformer import Transformer
 from utils.data_pipeline import DataPipeline
 from utils.tools import BleuScorer, epoch_time, parse_utils, str2bool
 
+torch.set_printoptions(threshold=10_000)
 random.seed(12)
 torch.manual_seed(12)
 
@@ -95,9 +96,6 @@ class Adjuster:
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
-    parser.add_argument(
-        "--use_pretrained_embeddings", help="Defines if to use pretrained embeddings", type=str, default="y"
-    )
     parser.add_argument("--warmup_steps", help="Defines warmup steps during training", type=int, default=4000)
     parser.add_argument("--learning_rate", help="Defines initial learning rate", type=float, default=0.0001)
 
@@ -108,7 +106,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     BATCH_SIZE = args.batch_size
-    if str2bool(args.use_pretrained_embeddings):
+    if args.use_pretrained_embeddings:
         D_MODEL = 303
         NHEAD = 3
     else:
@@ -118,7 +116,6 @@ if __name__ == "__main__":
     DIM_FEEDFORWARD = 2048
     DROPOUT = 0.1
     CLIP = 1.0
-    ACTIVATION = "relu"
     MAX_LEN = 100
     N_EPOCHS = args.epochs
     LEARNING_RATE = args.learning_rate
@@ -149,7 +146,7 @@ if __name__ == "__main__":
     TRG_PAD = trg_vocab.stoi["<pad>"]
     TRG_BOS = trg_vocab.stoi["<bos>"]
     src_embeddings, trg_embeddings = None, None
-    if str2bool(args.use_pretrained_embeddings):
+    if args.use_pretrained_embeddings:
         src_embeddings = src_vocab.vectors
         trg_embeddings = trg_vocab.vectors
 
@@ -161,10 +158,6 @@ if __name__ == "__main__":
     parameters["trg_embedding"] = trg_embeddings
 
     model = Transformer(parameters).to(device)
-
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98))
     scheduler = Adjuster(optimizer, D_MODEL, WARMUP_STEPS)

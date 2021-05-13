@@ -65,7 +65,7 @@ class Transformer(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, d_model, d_ff, num_heads, num_layers, d_k, drop_out_rate):
         super().__init__()
-        self.num_layers = num_heads
+        self.num_layers = num_layers
         self.layers = nn.ModuleList(
             [EncoderLayer(d_model, d_ff, num_heads, d_k, drop_out_rate) for i in range(num_layers)]
         )
@@ -81,7 +81,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, d_model, d_ff, num_heads, num_layers, d_k, drop_out_rate):
         super().__init__()
-        self.num_layers = num_heads
+        self.num_layers = num_layers
         self.layers = nn.ModuleList(
             [DecoderLayer(d_model, d_ff, num_heads, d_k, drop_out_rate) for i in range(num_layers)]
         )
