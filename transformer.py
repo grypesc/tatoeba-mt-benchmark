@@ -98,7 +98,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
     parser.add_argument("--warmup_steps", help="Defines warmup steps during training", type=int, default=4000)
-    parser.add_argument("--lr", help="Defines initial learning rate", type=float, default=0.0001)
+    # parser.add_argument("--lr", help="Defines initial learning rate", type=float, default=0.0001)
     parser.add_argument("--d_model", help="Transformer model d_model param", type=int, default=512)
     parser.add_argument("--num_heads", help="Transformer model atention heads number", type=int, default=8)
     parser.add_argument("--num_layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     CLIP = args.clip
     MAX_LEN = 100
     N_EPOCHS = args.epochs
-    LEARNING_RATE = args.learning_rate
+    LEARNING_RATE = args.lr
     WARMUP_STEPS = args.warmup_steps
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
