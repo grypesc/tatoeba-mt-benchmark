@@ -226,20 +226,20 @@ def evaluate_epoch(loader, bleu_scorer):
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
-    parser.add_argument('--testing_episode_max_time',
-                        help='maximum episode time during testing after which agents are terminated,'
+    parser.add_argument('--testing-episode-max-time',
+                        help='maximum episode time during testing after which agents are terminated, '
                              'if too low it will disallow agents to transform long sequences',
                         type=int,
                         default=64)
-    parser.add_argument('--rnn_hid_dim',
-                        help='approximator rnn hidden size',
+    parser.add_argument('--rnn-hid-dim',
+                        help='approximator\'s rnn hidden size',
                         type=int,
                         default=256)
-    parser.add_argument('--rnn_num_layers',
+    parser.add_argument('--rnn-num-layers',
                         help='number of rnn layers',
                         type=int,
                         default=1)
-    parser.add_argument('--rnn_dropout',
+    parser.add_argument('--rnn-dropout',
                         help='dropout between rnn layers',
                         type=float,
                         default=0.00)
@@ -251,7 +251,7 @@ def parse_args():
                         help='epsilon for epsilon-greedy strategy',
                         type=float,
                         default=0.15)
-    parser.add_argument('--teacher_forcing',
+    parser.add_argument('--teacher-forcing',
                         help='teacher forcing',
                         type=float,
                         default=0.5)
@@ -260,18 +260,18 @@ def parse_args():
                         type=float,
                         default=3.0)
     parser.add_argument('--N',
-                        help='estimated number of training mini batches after which policy loss will be close to its'
-                             'asymptote/maximum value',
+                        help='estimated number of training mini batches after which policy loss multiplier will be close '
+                        'to its asymptote/maximum value',
                         type=float,
-                        default=100_000)
-    parser.add_argument('--eta_min',
+                        default=50_000)
+    parser.add_argument('--eta-min',
                         help='minimum eta value',
                         type=float,
                         default=0.03)
-    parser.add_argument('--eta_max',
+    parser.add_argument('--eta-max',
                         help='eta maximum value, its asymptote',
                         type=float,
-                        default=0.3)
+                        default=0.2)
     parser.add_argument('--rho',
                         help='rho for moving exponential average of losses weights',
                         type=float,
@@ -305,7 +305,6 @@ if __name__ == '__main__':
                  trg_vocab.stoi['<pad>'])
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.999, last_epoch=-1)
     rlst_criterion = RLSTCriterion(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max)
 
     print(vars(args))
@@ -330,7 +329,6 @@ if __name__ == '__main__':
             print('Train loss: {}, PPL: {}, policy loss: {}, plm: {}, epsilon: {}, action ratio: {}'
                   .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
             print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
-            lr_scheduler.step()
 
     else:
         test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)

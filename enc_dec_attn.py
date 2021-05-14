@@ -168,14 +168,14 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-def train(model, data_loader, optimizer, criterion, clip):
+def train(model, data_loader, optimizer, criterion, clip, teacher_forcing):
     model.train()
     epoch_loss = 0
 
     for _, (src, trg) in enumerate(data_loader):
         src, trg = src.to(device), trg.to(device)
         optimizer.zero_grad()
-        output = model(src, trg, 0.5)
+        output = model(src, trg, teacher_forcing)
         output = output[1:].view(-1, output.shape[-1])
         trg = trg[1:].view(-1)
         loss = criterion(output, trg)
@@ -205,19 +205,23 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
-    parser.add_argument('--test_seq_max_len',
+    parser.add_argument('--test-seq-max-len',
                         help='maximum length of sequence that can be produced during testing',
                         type=int,
                         default=64)
-    parser.add_argument('--enc_hid_dim',
+    parser.add_argument('--teacher-forcing',
+                        help='teacher forcing',
+                        type=float,
+                        default=1.0)
+    parser.add_argument('--enc-hid-dim',
                         help='encoder hidden size',
                         type=int,
                         default=128)
-    parser.add_argument('--dec_hid_dim',
+    parser.add_argument('--dec-hid-dim',
                         help='decoder hidden size',
                         type=int,
                         default=128)
-    parser.add_argument('--attn_dim',
+    parser.add_argument('--attn-dim',
                         help='attention layer size',
                         type=int,
                         default=32)
@@ -258,7 +262,7 @@ if __name__ == '__main__':
     if not args.test:
         for epoch in range(args.epochs):
             start_time = time.time()
-            train_loss = train(model, train_loader, optimizer, criterion, args.clip)
+            train_loss = train(model, train_loader, optimizer, criterion, args.clip, args.teacher_forcing)
             valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
             save_model(model, args.checkpoint_dir, "enc_dec_attn", valid_bleu > best_val_bleu)

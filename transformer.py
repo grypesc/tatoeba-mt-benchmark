@@ -3,16 +3,11 @@ import math
 import os
 import random
 import time
-from typing import Tuple
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch import Tensor
-from torch.utils.data import DataLoader
 
-from transformer_model.transformer import Transformer
+from models.transformer.transformer import Transformer
 from utils.data_pipeline import DataPipeline
 from utils.tools import BleuScorer, epoch_time, parse_utils, save_model
 
@@ -79,7 +74,7 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
-class Adjuster:
+class Adjuster:  # TODO: Does not work
     def __init__(self, optimizer, d_model, warmup_steps):
         self.d_model = d_model
         self.warmup_steps = warmup_steps
@@ -97,21 +92,18 @@ class Adjuster:
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
-    parser.add_argument("--warmup_steps", help="Defines warmup steps during training", type=int, default=4000)
-    # parser.add_argument("--lr", help="Defines initial learning rate", type=float, default=0.0001)
-    parser.add_argument("--d_model", help="Transformer model d_model param", type=int, default=512)
-    parser.add_argument("--num_heads", help="Transformer model atention heads number", type=int, default=8)
-    parser.add_argument("--num_layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
-    parser.add_argument("--d_ffn", help="Transformer model ffn network internal dimension", type=int, default=2048)
+    parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=0)
+    parser.add_argument("--d-model", help="Transformer model d_model param", type=int, default=512)
+    parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=8)
+    parser.add_argument("--num-layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
+    parser.add_argument("--d-ffn", help="Transformer model ffn network internal dimension", type=int, default=2048)
     parser.add_argument("--dropout", help="Dropout rate", type=float, default=0.1)
-
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    BATCH_SIZE = args.batch_size
     if args.use_pretrained_embeddings:
         D_MODEL = 303
         NHEAD = 3
@@ -124,7 +116,6 @@ if __name__ == "__main__":
     CLIP = args.clip
     MAX_LEN = 100
     N_EPOCHS = args.epochs
-    LEARNING_RATE = args.lr
     WARMUP_STEPS = args.warmup_steps
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -140,7 +131,7 @@ if __name__ == "__main__":
     }
 
     data = DataPipeline(
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         src_lang=args.src,
         trg_lang=args.trg,
         token_min_freq=args.token_min_freq,
@@ -171,7 +162,7 @@ if __name__ == "__main__":
 
     model = Transformer(parameters).to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98), weight_decay=args.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), weight_decay=args.weight_decay)
     scheduler = Adjuster(optimizer, D_MODEL, WARMUP_STEPS)
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
 

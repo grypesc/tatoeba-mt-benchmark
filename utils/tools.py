@@ -79,15 +79,15 @@ def parse_utils(parser):
                         help='target language',
                         type=str,
                         default='es')
-    parser.add_argument('--token_min_freq',
+    parser.add_argument('--token-min-freq',
                         help='minimum frequency for a token to be included in vocabulary, if excluded it is <unk>',
                         type=int,
-                        default=1)
-    parser.add_argument('--checkpoint_dir',
+                        default=3)
+    parser.add_argument('--checkpoint-dir',
                         help='directory where models will be saved and loaded from',
                         type=str,
                         default='checkpoints')
-    parser.add_argument('--load_model_name',
+    parser.add_argument('--load-model-name',
                         help='name of the model to load inside checkpoint_dir',
                         type=str,
                         default=None)
@@ -95,23 +95,23 @@ def parse_utils(parser):
                         help='perform test on testing and long testing sets, model will be loaded from checkpoint_dir',
                         default=False,
                         action="store_true")
-    parser.add_argument('--use_pretrained_embeddings',
+    parser.add_argument('--use-pretrained-embeddings',
                         help='whether to use pretrained FastText embeddings',
                         default=False,
                         action="store_true")
-    parser.add_argument('--src_embed_dim',
+    parser.add_argument('--src-embed-dim',
                         help='size of source language embedding layer',
                         type=int,
                         default=256)
-    parser.add_argument('--trg_embed_dim',
+    parser.add_argument('--trg-embed-dim',
                         help='size of target language embedding layer',
                         type=int,
                         default=256)
-    parser.add_argument('--embed_dropout',
+    parser.add_argument('--embed-dropout',
                         help='dropout after source and target embeddings',
                         type=float,
                         default=0.0)
-    parser.add_argument('--batch_size',
+    parser.add_argument('--batch-size',
                         help='mini batch size',
                         type=int,
                         default=128)
@@ -127,18 +127,7 @@ def parse_utils(parser):
                         help='learning_rate',
                         type=float,
                         default=1e-3)
-    parser.add_argument('--weight_decay',
+    parser.add_argument('--weight-decay',
                         help='weight_decay',
                         type=float,
                         default=1e-5)
-
-
-def str2bool(v):
-    if isinstance(v, bool):
-       return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')

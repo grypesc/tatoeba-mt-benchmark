@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from transformer_model.layers import *
+from models.transformer.layers import *
 
 
 class Transformer(nn.Module):
