@@ -92,7 +92,7 @@ class Adjuster:  # TODO: Does not work
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
-    parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=0)
+    parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=1)
     parser.add_argument("--d-model", help="Transformer model d_model param", type=int, default=512)
     parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=8)
     parser.add_argument("--num-layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
