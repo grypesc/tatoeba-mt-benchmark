@@ -171,7 +171,7 @@ if __name__ == "__main__":
 
     model = Transformer(parameters).to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98))
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98), weight_decay=args.weight_decay)
     scheduler = Adjuster(optimizer, D_MODEL, WARMUP_STEPS)
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
 
