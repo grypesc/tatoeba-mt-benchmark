@@ -23,7 +23,7 @@ class RLSTCriterion(nn.Module):
         mistranslation_loss = self.mistranslation_criterion(word_outputs, trg)
         if self.training:
             self.n += 1
-            self.policy_multiplier = self.eta_max - (self.eta_max - self.eta_min) * math.e ** ((-1) * 1/self.eta_max * self.n / self.N)
+            self.policy_multiplier = self.eta_max - (self.eta_max - self.eta_min) * math.e ** ((-3) * self.n / self.N)
             policy_loss = self.policy_criterion(Q_used, Q_target)/torch.count_nonzero(Q_target)
             self.rho_to_n *= self.RHO
             w_k = (self.RHO - self.rho_to_n) / (1 - self.rho_to_n)
