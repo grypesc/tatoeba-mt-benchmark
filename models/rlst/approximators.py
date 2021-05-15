@@ -75,9 +75,9 @@ class Net2(nn.Module):
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
-        linear_out = self.tanh(self.linear(rnn_output))
-        linear_out = self.embedding_dropout(linear_out)
-        outputs = self.output(linear_out)
+        tanh_out = self.tanh(self.linear(rnn_output))
+        tanh_out = self.embedding_dropout(tanh_out)
+        outputs = self.output(tanh_out)
         return outputs, rnn_state
 
 
@@ -102,8 +102,7 @@ class ResidualApproximator(nn.Module):
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
         assert src_embed_dim + trg_embed_dim == rnn_hid_dim
-        self.rnns = nn.ModuleList(
-            rnn_num_layers * [nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=1, dropout=0.0)])
+        self.rnns = nn.ModuleList(rnn_num_layers * [nn.GRU(rnn_hid_dim, rnn_hid_dim)])
         self.rnn_dropout = nn.Dropout(rnn_dropout)
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
@@ -113,17 +112,17 @@ class ResidualApproximator(nn.Module):
 
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
-        rnn_out = None
+        res_out = None
         for i, rnn in enumerate(self.rnns):
-            rnn_out, rnn_new_state = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
-            rnn_out = self.rnn_dropout(rnn_out)
-            rnn_input = rnn_out
-            rnn_new_states[i, :] = rnn_new_state
+            res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
+            res_out = self.rnn_dropout(res_out)
+            rnn_input = res_out
 
-        outputs = self.output(rnn_out)
+        outputs = self.output(res_out)
         return outputs, rnn_new_states
 
-    def _skip_rep(self, input, rnn, rnn_state):
+    @staticmethod
+    def _skip_rep(input, rnn, rnn_state):
         rnn_output, rnn_new_state = rnn(input, rnn_state)
         return input + rnn_output, rnn_new_state
 
