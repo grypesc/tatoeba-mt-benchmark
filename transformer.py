@@ -3,6 +3,7 @@ import math
 import os
 import random
 import time
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -35,7 +36,6 @@ def train(model, data_loader, optimizer, criterion, clip, scheduler):
     for _, (src, trg) in enumerate(data_loader):
         src = src.permute(1, 0)
         trg = trg.permute(1, 0)
-        scheduler.adjust_optim()
         dec_inp = trg[:, :-1]
         trg = trg[:, 1:]
         src, trg, dec_inp = src.to(device), trg.to(device), dec_inp.to(device)
@@ -48,6 +48,7 @@ def train(model, data_loader, optimizer, criterion, clip, scheduler):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
+        scheduler.step()
         epoch_loss += loss.item()
 
     return epoch_loss / len(data_loader)
@@ -74,19 +75,15 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
-class Adjuster:  # TODO: Does not work
-    def __init__(self, optimizer, d_model, warmup_steps):
-        self.d_model = d_model
-        self.warmup_steps = warmup_steps
-        self.optimizer = optimizer
-        self.n_iter = 1
+def get_schedule(d_model, warmup_steps):
+    def schedule_expression(step):
+        step = step if step != 0 else 1
+        arg1 = 1 / math.sqrt(step)
+        arg2 = step * (warmup_steps ** -1.5)
 
-    def adjust_optim(self):
-        arg1 = 1 / math.sqrt(self.n_iter)
-        arg2 = self.n_iter * (self.warmup_steps ** -1.5)
+        return (1 / d_model) * min([arg1, arg2])
 
-        self.optimizer.param_groups[0]["lr"] = (1 / self.d_model) * min([arg1, arg2])
-        self.n_iter += 1
+    return lambda epoch: schedule_expression(epoch) * 10e4  # after this multiplication lr goes to set lr param
 
 
 def parse_args():
@@ -163,7 +160,7 @@ if __name__ == "__main__":
     model = Transformer(parameters).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), weight_decay=args.weight_decay)
-    scheduler = Adjuster(optimizer, D_MODEL, WARMUP_STEPS)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS))
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
 
     if args.load_model_name:
