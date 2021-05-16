@@ -39,7 +39,7 @@ class Net(nn.Module):
         return outputs, rnn_state
 
 
-class Net2(nn.Module):
+class LeakyNet(nn.Module):
     def __init__(self,
                  src_vocab,
                  trg_vocab,
@@ -50,7 +50,7 @@ class Net2(nn.Module):
                  src_embed_dim=256,
                  trg_embed_dim=256,
                  embedding_dropout=0.0,
-                 bottle_neck=512):
+                 ):
         super().__init__()
 
         self.rnn_hid_dim = rnn_hid_dim
@@ -66,18 +66,18 @@ class Net2(nn.Module):
             self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim).from_pretrained(trg_vocab.vectors, freeze=True)
 
         self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=rnn_dropout)
-        self.linear = nn.Linear(rnn_hid_dim, bottle_neck)
-        self.tanh = nn.Tanh()
-        self.output = nn.Linear(bottle_neck, len(trg_vocab) + 3)
+        self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
+        self.relu = nn.LeakyReLU()
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
     def forward(self, src, previous_output, rnn_state):
         src_embedded = self.embedding_dropout(self.src_embedding(src))
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
-        tanh_out = self.tanh(self.linear(rnn_output))
-        tanh_out = self.embedding_dropout(tanh_out)
-        outputs = self.output(tanh_out)
+        linear_out = self.relu(self.linear(rnn_output))
+        linear_out = self.embedding_dropout(linear_out)
+        outputs = self.output(linear_out)
         return outputs, rnn_state
 
 
