@@ -146,7 +146,7 @@ class LeakyResidualApproximator(nn.Module):
         self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
-        assert src_embed_dim + trg_embed_dim == rnn_hid_dim
+        self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
         self.rnns = nn.ModuleList(rnn_num_layers * [nn.GRU(rnn_hid_dim, rnn_hid_dim)])
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
@@ -156,7 +156,7 @@ class LeakyResidualApproximator(nn.Module):
         src_embedded = self.embedding_dropout(self.src_embedding(src))
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
 
-        rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
+        rnn_input = self.activation(self.embedding_linear(torch.cat((src_embedded, trg_embedded), dim=2)))
         rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
         res_out = None
         for i, rnn in enumerate(self.rnns):
