@@ -309,7 +309,8 @@ if __name__ == '__main__':
 
     print(vars(args))
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
-
+    print(net)
+    
     bleu_scorer = BleuScorer(trg_vocab, device)
     best_val_bleu = 0.0
 
