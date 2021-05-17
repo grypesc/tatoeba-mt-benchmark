@@ -27,6 +27,9 @@ class Transformer(nn.Module):
         else:
             self.src_embedding = nn.Embedding(self.src_vocab_size, self.d_model)
             self.trg_embedding = nn.Embedding(self.trg_vocab_size, self.d_model)
+        
+        self.drop_out_enc_in = nn.Dropout(self.drop_out_rate)
+        self.drop_out_dec_in = nn.Dropout(self.drop_out_rate)
 
         self.positional_encoder = PositionalEncoder(parameters)
         self.encoder = Encoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)
@@ -36,7 +39,9 @@ class Transformer(nn.Module):
 
     def forward(self, src_input, trg_input, e_mask=None, d_mask=None, training=False, limit=100):
         src_input = self.src_embedding(src_input)  # (B, L) => (B, L, d_model)
+        src_input = self.drop_out_enc_in(src_input)
         trg_input = self.trg_embedding(trg_input)  # (B, L) => (B, L, d_model)
+        trg_input = self.drop_out_dec_in(trg_input)
         src_input = self.positional_encoder(src_input)  # (B, L, d_model) => (B, L, d_model)
         trg_input = self.positional_encoder(trg_input)  # (B, L, d_model) => (B, L, d_model)
 
@@ -56,6 +61,7 @@ class Transformer(nn.Module):
             predictions = torch.cat((predictions, out), dim=1)
             out = torch.argmax(out, dim=-1)
             out = self.trg_embedding(out)
+            out = self.drop_out_dec_in(out)
             out = self.positional_encoder(out, step + 1)
             trg_input = torch.cat((trg_input, out), dim=1)
 

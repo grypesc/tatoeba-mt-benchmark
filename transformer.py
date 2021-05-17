@@ -75,7 +75,9 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
-def get_schedule(d_model, warmup_steps):
+def get_schedule(d_model, warmup_steps, deactivate=False):
+    if deactivate:
+        return lambda epoch: 1.0
     def schedule_expression(step):
         step = step if step != 0 else 1
         arg1 = 1 / math.sqrt(step)
@@ -95,6 +97,8 @@ def parse_args():
     parser.add_argument("--num-layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
     parser.add_argument("--d-ffn", help="Transformer model ffn network internal dimension", type=int, default=2048)
     parser.add_argument("--dropout", help="Dropout rate", type=float, default=0.1)
+    parser.add_argument("--device", help="CUDA device number to run on", type=int, default=0)
+    parser.add_argument("--static-lr", help="Do not use learning rate scheduler", default=False, action="store_true")
     return parser.parse_args()
 
 
@@ -114,7 +118,7 @@ if __name__ == "__main__":
     MAX_LEN = 100
     N_EPOCHS = args.epochs
     WARMUP_STEPS = args.warmup_steps
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
     parameters = {
         "device": device,
@@ -160,7 +164,7 @@ if __name__ == "__main__":
     model = Transformer(parameters).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS, args.static_lr))
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
 
     if args.load_model_name:
