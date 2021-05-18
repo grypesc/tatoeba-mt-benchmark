@@ -267,7 +267,7 @@ def parse_args():
     parser.add_argument('--eta-min',
                         help='minimum eta value',
                         type=float,
-                        default=0.03)
+                        default=0.02)
     parser.add_argument('--eta-max',
                         help='eta maximum value, its asymptote',
                         type=float,

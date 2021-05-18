@@ -67,7 +67,7 @@ class LeakyNet(nn.Module):
 
         self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=rnn_dropout)
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
-        self.relu = nn.LeakyReLU()
+        self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
     def forward(self, src, previous_output, rnn_state):
@@ -75,14 +75,12 @@ class LeakyNet(nn.Module):
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
-        linear_out = self.relu(self.linear(rnn_output))
-        linear_out = self.embedding_dropout(linear_out)
-        outputs = self.output(linear_out)
+        leaky_out = self.activation(self.linear(rnn_output))
+        outputs = self.output(leaky_out)
         return outputs, rnn_state
 
 
 class ResidualApproximator(nn.Module):
-    """Bad boy."""
 
     def __init__(self,
                  src_vocab,
