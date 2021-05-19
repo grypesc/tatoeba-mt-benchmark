@@ -76,6 +76,7 @@ class LeakyNet(nn.Module):
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
         leaky_out = self.activation(self.linear(rnn_output))
+        leaky_out = self.embedding_dropout(leaky_out)
         outputs = self.output(leaky_out)
         return outputs, rnn_state
 
@@ -161,7 +162,7 @@ class LeakyResidualApproximator(nn.Module):
             res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
             rnn_input = res_out
 
-        leaky_output = self.activation(self.linear(res_out))
+        leaky_output = self.embedding_dropout(self.activation(self.linear(res_out)))
         outputs = self.output(leaky_output)
         return outputs, rnn_new_states
 

@@ -10,7 +10,7 @@ import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
-from models.rlst.approximators import Net, LeakyNet, ResidualApproximator, LeakyResidualApproximator
+from models.rlst.approximators import Net, LeakyNet, LeakyResidualApproximator
 from criterions.rlst_criterion import RLSTCriterion
 
 torch.set_printoptions(threshold=10_000)
