@@ -327,7 +327,7 @@ if __name__ == '__main__':
             epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
             print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-            print('Train loss: {}, PPL: {}, policy loss: {}, plm: {}, epsilon: {}, action ratio: {}'
+            print('Train loss: {}, PPL: {}, policy loss: {}, eta: {}, epsilon: {}, action ratio: {}'
                   .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
             print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
