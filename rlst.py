@@ -57,8 +57,8 @@ class RLST(nn.Module):
         rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, self.trg_vocab_len), device=device)
-        Q_used = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
-        Q_target = torch.zeros((src_seq_len + trg_seq_len, batch_size), device=device)
+        Q_used = torch.zeros((src_seq_len + trg_seq_len - 1, batch_size), device=device)
+        Q_target = torch.zeros((src_seq_len + trg_seq_len - 1, batch_size), device=device)
 
         writing_agents = torch.full((1, batch_size), False, device=device, requires_grad=False)
         naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
@@ -126,7 +126,7 @@ class RLST(nn.Module):
                 Q_target[t, just_terminated_agents.squeeze(0)] = reward[just_terminated_agents]
                 Q_target[t, naughty_agents.squeeze(0)] -= self.M
 
-                if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 1:
+                if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 2:
                     return word_outputs, Q_used, Q_target, actions_count.unsqueeze_(dim=1)
             t += 1
 
