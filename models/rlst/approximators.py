@@ -59,13 +59,14 @@ class LeakyNet(nn.Module):
         self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
         if use_pretrained_embeddings:
             src_embed_dim = src_vocab.vectors.size()[1]
             trg_embed_dim = trg_vocab.vectors.size()[1]
             self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim).from_pretrained(src_vocab.vectors, freeze=True)
             self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim).from_pretrained(trg_vocab.vectors, freeze=True)
 
-        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=rnn_dropout)
+        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, dropout=0.0)
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
@@ -76,7 +77,7 @@ class LeakyNet(nn.Module):
         rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
         leaky_out = self.activation(self.linear(rnn_output))
-        leaky_out = self.embedding_dropout(leaky_out)
+        leaky_out = self.rnn_dropout(leaky_out)
         outputs = self.output(leaky_out)
         return outputs, rnn_state
 
