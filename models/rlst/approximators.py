@@ -99,19 +99,25 @@ class MoneyShot(nn.Module):
         self.rnn_hid_dim = rnn_hid_dim
         self.rnn_num_layers = rnn_num_layers
         self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.src_leaky = nn.Linear(src_embed_dim, rnn_hid_dim)
         self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.trg_leaky = nn.Linear(trg_embed_dim, rnn_hid_dim)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
-        self.rnn_dropout = nn.Dropout(rnn_dropout)
-        assert rnn_hid_dim == src_embed_dim and rnn_hid_dim == trg_embed_dim
-        # self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
+
         self.rnns = nn.ModuleList(rnn_num_layers * [nn.GRU(rnn_hid_dim, rnn_hid_dim)])
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
     def forward(self, src, previous_output, rnn_states):
         src_embedded = self.embedding_dropout(self.src_embedding(src))
+        src_embedded = self.activation(self.src_leaky(src_embedded))
+        src_embedded = self.rnn_dropout(src_embedded)
+
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+        trg_embedded = self.activation(self.trg_leaky(trg_embedded))
+        trg_embedded = self.rnn_dropout(trg_embedded)
 
         rnn_input = src_embedded
         rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
