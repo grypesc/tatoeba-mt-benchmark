@@ -5,7 +5,7 @@ from models.transformer.layers import *
 
 
 class Transformer(nn.Module):
-    def __init__(self, parameters):
+    def __init__(self, parameters, embed_dropout):
         super().__init__()
         self.src_vocab_size = parameters["src_vocab_size"]
         self.trg_vocab_size = parameters["trg_vocab_size"]
@@ -28,8 +28,8 @@ class Transformer(nn.Module):
             self.src_embedding = nn.Embedding(self.src_vocab_size, self.d_model)
             self.trg_embedding = nn.Embedding(self.trg_vocab_size, self.d_model)
         
-        self.drop_out_enc_in = nn.Dropout(self.drop_out_rate)
-        self.drop_out_dec_in = nn.Dropout(self.drop_out_rate)
+        self.drop_out_enc_in = nn.Dropout(embed_dropout)
+        self.drop_out_dec_in = nn.Dropout(embed_dropout)
 
         self.positional_encoder = PositionalEncoder(parameters)
         self.encoder = Encoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)

@@ -112,7 +112,6 @@ if __name__ == "__main__":
         NHEAD = args.num_heads
     NUM_LAYERS = args.num_layers
     DIM_FEEDFORWARD = args.d_ffn
-    DROPOUT = args.dropout
     CLIP = args.clip
     MAX_LEN = 100
     N_EPOCHS = args.epochs
@@ -127,7 +126,7 @@ if __name__ == "__main__":
         "d_model": D_MODEL,
         "d_ff": DIM_FEEDFORWARD,
         "d_k": D_MODEL // NHEAD,
-        "drop_out_rate": DROPOUT,
+        "drop_out_rate": args.dropout,
     }
 
     data = DataPipeline(
@@ -160,7 +159,7 @@ if __name__ == "__main__":
     parameters["src_embedding"] = src_embeddings
     parameters["trg_embedding"] = trg_embeddings
 
-    model = Transformer(parameters).to(device)
+    model = Transformer(parameters, args.embed_dropout).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS, args.static_lr))
