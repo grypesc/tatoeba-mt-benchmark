@@ -29,7 +29,7 @@ def make_mask(src_input, trg_input, pad_id):
     return e_mask, d_mask
 
 
-def train(model, data_loader, optimizer, criterion, clip, scheduler):
+def train(model, data_loader, optimizer, criterion, clip):
     model.train()
     epoch_loss = 0
 
@@ -48,7 +48,6 @@ def train(model, data_loader, optimizer, criterion, clip, scheduler):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
-        scheduler.step()
         epoch_loss += loss.item()
 
     return epoch_loss / len(data_loader)
@@ -75,17 +74,17 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
 
 
-def get_schedule(d_model, warmup_steps, deactivate=False):
-    if deactivate:
-        return lambda epoch: 1.0
-    def schedule_expression(step):
-        step = step if step != 0 else 1
-        arg1 = 1 / math.sqrt(step)
-        arg2 = step * (warmup_steps ** -1.5)
-
-        return (1 / d_model) * min([arg1, arg2])
-
-    return lambda epoch: schedule_expression(epoch) * 10e4  # after this multiplication lr goes to set lr param
+# def get_schedule(d_model, warmup_steps, deactivate=False):
+#     if deactivate:
+#         return lambda epoch: 1.0
+#     def schedule_expression(step):
+#         step = step if step != 0 else 1
+#         arg1 = 1 / math.sqrt(step)
+#         arg2 = step * (warmup_steps ** -1.5)
+#
+#         return (1 / d_model) * min([arg1, arg2])
+#
+#     return lambda epoch: schedule_expression(epoch) * 10e4  # after this multiplication lr goes to set lr param
 
 
 def parse_args():
@@ -93,9 +92,9 @@ def parse_args():
     parse_utils(parser)
     parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=1)
     parser.add_argument("--d-model", help="Transformer model d_model param", type=int, default=512)
-    parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=8)
-    parser.add_argument("--num-layers", help="Transformer model enc/dec stacks layers", type=int, default=6)
-    parser.add_argument("--d-ffn", help="Transformer model ffn network internal dimension", type=int, default=2048)
+    parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=4)
+    parser.add_argument("--num-layers", help="Transformer model enc/dec stacks layers", type=int, default=4)
+    parser.add_argument("--d-ffn", help="Transformer model ffn network internal dimension", type=int, default=1024)
     parser.add_argument("--dropout", help="Dropout rate", type=float, default=0.1)
     parser.add_argument("--device", help="CUDA device number to run on", type=int, default=0)
     parser.add_argument("--static-lr", help="Do not use learning rate scheduler", default=False, action="store_true")
@@ -163,8 +162,8 @@ if __name__ == "__main__":
 
     model = Transformer(parameters).to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS, args.static_lr))
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_schedule(D_MODEL, WARMUP_STEPS, args.static_lr))
     criterion = nn.NLLLoss(ignore_index=trg_vocab.stoi["<pad>"])
 
     if args.load_model_name:
@@ -179,7 +178,7 @@ if __name__ == "__main__":
     if not args.test:
         for epoch in range(N_EPOCHS):
             start_time = time.time()
-            train_loss = train(model, train_loader, optimizer, criterion, CLIP, scheduler)
+            train_loss = train(model, train_loader, optimizer, criterion, CLIP)
             valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
 
             save_model(model, args.checkpoint_dir, "transformer", valid_bleu > best_val_bleu)
