@@ -32,7 +32,6 @@ class Encoder(nn.Module):
         self.emb_dim = emb_dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
-        self.dropout = dropout
         self.embedding = nn.Embedding(input_dim, emb_dim)
         if use_pretrained_embeddings:
             self.emb_dim = src_vocab.vectors.shape[1]
@@ -80,14 +79,14 @@ class Decoder(nn.Module):
                  dec_hid_dim: int,
                  dropout: float,
                  attention: nn.Module,
-                 use_pretrained_embeddings=False):
+                 use_pretrained_embeddings=False,
+                 decoder_dropout=0.0):
         super().__init__()
 
         self.emb_dim = emb_dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
         self.output_dim = output_dim
-        self.dropout = dropout
         self.attention = attention
 
         self.embedding = nn.Embedding(output_dim, emb_dim)
@@ -97,6 +96,7 @@ class Decoder(nn.Module):
         self.rnn = nn.GRU((enc_hid_dim * 2) + self.emb_dim, dec_hid_dim)
         self.out = nn.Linear(self.attention.attn_in + self.emb_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
+        self.decoder_dropout = nn.Dropout(decoder_dropout)
 
     def _weighted_encoder_rep(self,
                               decoder_hidden: Tensor,
@@ -124,9 +124,9 @@ class Decoder(nn.Module):
         output = output.squeeze(0)
         weighted_encoder_rep = weighted_encoder_rep.squeeze(0)
 
-        output = self.out(torch.cat((output,
-                                     weighted_encoder_rep,
-                                     embedded), dim=1))
+        output_in = torch.cat((output, weighted_encoder_rep, embedded), dim=1)
+        output_in = self.decoder_dropout(output_in)
+        output = self.out(output_in)
 
         return output, decoder_hidden.squeeze(0)
 
@@ -225,6 +225,10 @@ def parse_args():
                         help='attention layer size',
                         type=int,
                         default=32)
+    parser.add_argument('--decoder-dropout',
+                        help='dropout before last output layer',
+                        type=float,
+                        default=0.0)
     return parser.parse_args()
 
 
@@ -244,7 +248,7 @@ if __name__ == '__main__':
 
     enc = Encoder(len(src_vocab), args.src_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, args.use_pretrained_embeddings)
     attn = Attention(args.enc_hid_dim, args.dec_hid_dim, args.attn_dim)
-    dec = Decoder(len(trg_vocab), args.trg_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, attn, args.use_pretrained_embeddings)
+    dec = Decoder(len(trg_vocab), args.trg_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, attn, args.use_pretrained_embeddings, args.decoder_dropout)
     model = Seq2Seq(enc, dec, device, args.test_seq_max_len).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
