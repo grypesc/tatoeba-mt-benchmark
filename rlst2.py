@@ -60,6 +60,62 @@ class LeakyNet(nn.Module):
         return outputs, rnn_state
 
 
+class MoneyShot(nn.Module):
+
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.src_leaky = nn.Linear(src_embed_dim, rnn_hid_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.trg_leaky = nn.Linear(trg_embed_dim, rnn_hid_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+
+        self.rnns = nn.ModuleList(rnn_num_layers * [nn.GRU(rnn_hid_dim, rnn_hid_dim)])
+        self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
+        self.activation = nn.LeakyReLU()
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 2)
+
+    def forward(self, src, previous_output, rnn_states):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        src_embedded = self.activation(self.src_leaky(src_embedded))
+        src_embedded = self.embedding_dropout(src_embedded)
+
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+        trg_embedded = self.activation(self.trg_leaky(trg_embedded))
+        trg_embedded = self.embedding_dropout(trg_embedded)
+
+        rnn_input = src_embedded
+        rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
+        res_out = None
+        for i, rnn in enumerate(self.rnns):
+            res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
+            rnn_input = res_out
+            if self.rnn_num_layers / (i + 1) == 2:
+                rnn_input += trg_embedded
+
+        leaky_output = self.rnn_dropout(self.activation(self.linear(res_out)))
+        outputs = self.output(leaky_output)
+        return outputs, rnn_new_states
+
+    @staticmethod
+    def _skip_rep(input, rnn, rnn_state):
+        rnn_output, rnn_new_state = rnn(input, rnn_state)
+        return input + rnn_output, rnn_new_state
+
+
 class RLST(nn.Module):
     """
     This class implements RLST algorithm presented in the paper. Given batch size of n, it creates n partially observable
@@ -334,8 +390,8 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    net = LeakyNet(src_vocab, trg_vocab, args.use_pretrained_embeddings, args.rnn_hid_dim, args.rnn_dropout, args.rnn_num_layers,
-                               args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
+    net = MoneyShot(src_vocab, trg_vocab, args.use_pretrained_embeddings, args.rnn_hid_dim, args.rnn_dropout, args.rnn_num_layers,
+                    args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
     if args.load_model_name:
         net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
     model = RLST(net, device, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
