@@ -82,7 +82,7 @@ class MoneyShot(nn.Module):
         self.trg_leaky = nn.Linear(trg_embed_dim, rnn_hid_dim)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
 
-        self.rnns = nn.ModuleList(rnn_num_layers * [nn.GRU(rnn_hid_dim, rnn_hid_dim)])
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.rnn_dropout = nn.Dropout(rnn_dropout)
