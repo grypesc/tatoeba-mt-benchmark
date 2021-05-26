@@ -64,11 +64,12 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
             trg = trg[:, 1:]
             src, trg, dec_inp = src.to(device), trg.to(device), dec_inp.to(device)
             e_mask, d_mask = make_mask(src, dec_inp, SRC_PAD)
-            output = model(src, dec_inp, e_mask, d_mask, training=False, limit=trg.shape[-1])
+            output = model(src, dec_inp, e_mask, d_mask, training=False, limit=trg.shape[-1] + 50)
             bleu_scorer.register_minibatch(output.permute(1, 0, 2), trg.permute(1, 0))
-            output = output.view(-1, output.shape[-1])
+            output_clipped = output[:, :trg.size()[-1], :]
+            output_clipped = output.view(-1, output_clipped.shape[-1])
             trg = torch.reshape(trg, (-1,))
-            loss = criterion(output, trg)
+            loss = criterion(output_clipped, trg)
             epoch_loss += loss.item()
 
     return epoch_loss / len(data_loader), bleu_scorer.epoch_score()
@@ -113,7 +114,7 @@ if __name__ == "__main__":
     NUM_LAYERS = args.num_layers
     DIM_FEEDFORWARD = args.d_ffn
     CLIP = args.clip
-    MAX_LEN = 100
+    MAX_LEN = 512
     N_EPOCHS = args.epochs
     WARMUP_STEPS = args.warmup_steps
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")

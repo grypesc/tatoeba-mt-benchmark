@@ -34,6 +34,7 @@ class Transformer(nn.Module):
         self.positional_encoder = PositionalEncoder(parameters)
         self.encoder = Encoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)
         self.decoder = Decoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)
+        self.output_dropout = nn.Dropout(0.5)
         self.output_linear = nn.Linear(self.d_model, self.trg_vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
@@ -49,6 +50,7 @@ class Transformer(nn.Module):
 
         if training:
             d_output = self.decoder(trg_input, e_output, e_mask, d_mask)  # (B, L, d_model)
+            d_output = self.output_dropout(d_output)
             return self.softmax(self.output_linear(d_output))  # (B, L, d_model) => # (B, L, trg_vocab_size)
         else:
             return self._predict(trg_input, e_output, e_mask, limit)
@@ -57,6 +59,7 @@ class Transformer(nn.Module):
         predictions = torch.tensor([]).to(self.device)
         for step in range(len_lim):
             out = self.decoder(trg_input, e_output, e_mask, None)
+            out = self.output_dropout(out)
             out = self.softmax(self.output_linear(out))[:, -1:, :]
             predictions = torch.cat((predictions, out), dim=1)
             out = torch.argmax(out, dim=-1)
