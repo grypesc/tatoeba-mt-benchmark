@@ -67,7 +67,7 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
             output = model(src, dec_inp, e_mask, d_mask, training=False, limit=trg.shape[-1] + 50)
             bleu_scorer.register_minibatch(output.permute(1, 0, 2), trg.permute(1, 0))
             output_clipped = output[:, :trg.size()[-1], :]
-            output_clipped = output.view(-1, output_clipped.shape[-1])
+            output_clipped = output_clipped.reshape(-1, output_clipped.shape[-1])
             trg = torch.reshape(trg, (-1,))
             loss = criterion(output_clipped, trg)
             epoch_loss += loss.item()
