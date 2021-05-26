@@ -91,6 +91,10 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
 def parse_args():
     parser = argparse.ArgumentParser()
     parse_utils(parser)
+    parser.add_argument('--test-seq-max-len',
+                        help='maximum length of sequence that can be produced during testing',
+                        type=int,
+                        default=64)
     parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=1)
     parser.add_argument("--d-model", help="Transformer model d_model param", type=int, default=512)
     parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=4)
@@ -111,21 +115,18 @@ if __name__ == "__main__":
     else:
         D_MODEL = args.d_model
         NHEAD = args.num_heads
-    NUM_LAYERS = args.num_layers
-    DIM_FEEDFORWARD = args.d_ffn
     CLIP = args.clip
-    MAX_LEN = 512
     N_EPOCHS = args.epochs
     WARMUP_STEPS = args.warmup_steps
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
     parameters = {
         "device": device,
-        "max_seq_len": MAX_LEN,
+        "max_seq_len": args.test_seq_max_len,
         "num_heads": NHEAD,
-        "num_layers": NUM_LAYERS,
+        "num_layers": args.num_layers,
         "d_model": D_MODEL,
-        "d_ff": DIM_FEEDFORWARD,
+        "d_ff": args.d_ffn,
         "d_k": D_MODEL // NHEAD,
         "drop_out_rate": args.dropout,
     }
