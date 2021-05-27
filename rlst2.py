@@ -91,6 +91,7 @@ class LeakyResidualApproximator(nn.Module):
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
 
         rnn_input = self.activation(self.embedding_linear(torch.cat((src_embedded, trg_embedded), dim=2)))
+        rnn_input = self.embedding_dropout(rnn_input)
         rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
         res_out = None
         for i, rnn in enumerate(self.rnns):
@@ -176,20 +177,17 @@ class RLST(nn.Module):
             with torch.no_grad():
                 reading_agents = ~terminated_agents * (action == 0)
                 writing_agents = ~terminated_agents * (action == 1)
-                bothing_agents = ~terminated_agents * (action == 2)
 
                 actions_count[0] += reading_agents.sum()
                 actions_count[1] += writing_agents.sum()
-                actions_count[2] += bothing_agents.sum()
 
-            agents_outputting = writing_agents + bothing_agents
-            word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-2]
+            word_outputs[j[writing_agents], writing_agents.squeeze(0), :] = output[0, writing_agents.squeeze(0), :-2]
 
-            just_terminated_agents = agents_outputting * (torch.gather(trg, 0, j) == self.TRG_EOS).squeeze_(0)
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
-            i = i + ~naughty_agents * (reading_agents + bothing_agents)
+            just_terminated_agents = writing_agents * (torch.gather(trg, 0, j) == self.TRG_EOS).squeeze_(0)
+            naughty_agents = reading_agents * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
+            i = i + ~naughty_agents * reading_agents
             old_j = j
-            j = j + agents_outputting
+            j = j + writing_agents
 
             terminated_agents = terminated_agents + just_terminated_agents
 
@@ -247,19 +245,16 @@ class RLST(nn.Module):
 
             reading_agents = (action == 0)
             writing_agents = (action == 1)
-            bothing_agents = (action == 2)
 
             actions_count[0] += (~after_eos_agents * reading_agents).sum()
             actions_count[1] += (~after_eos_agents * writing_agents).sum()
-            actions_count[2] += (~after_eos_agents * bothing_agents).sum()
 
-            agents_outputting = writing_agents + bothing_agents
-            word_outputs[j[agents_outputting], agents_outputting.squeeze(0), :] = output[0, agents_outputting.squeeze(0), :-2]
+            word_outputs[j[writing_agents], writing_agents.squeeze(0), :] = output[0, writing_agents.squeeze(0), :-2]
 
             after_eos_agents += (word_output == self.TRG_EOS)
-            naughty_agents = (reading_agents + bothing_agents) * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
-            i = i + ~naughty_agents * (reading_agents + bothing_agents)
-            j = j + agents_outputting
+            naughty_agents = reading_agents * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
+            i = i + ~naughty_agents * reading_agents
+            j = j + writing_agents
 
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = self.TRG_NULL
