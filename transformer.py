@@ -53,7 +53,7 @@ def train(model, data_loader, optimizer, criterion, clip):
     return epoch_loss / len(data_loader)
 
 
-def evaluate(model, data_loader, criterion, bleu_scorer):
+def evaluate(model, data_loader, criterion, bleu_scorer, test_seq_max_len):
     model.eval()
     epoch_loss, epoch_bleu = 0, 0
     with torch.no_grad():
@@ -64,7 +64,7 @@ def evaluate(model, data_loader, criterion, bleu_scorer):
             trg = trg[:, 1:]
             src, trg, dec_inp = src.to(device), trg.to(device), dec_inp.to(device)
             e_mask, d_mask = make_mask(src, dec_inp, SRC_PAD)
-            output = model(src, dec_inp, e_mask, d_mask, training=False, limit=trg.shape[-1] + 50)
+            output = model(src, dec_inp, e_mask, d_mask, training=False, limit=test_seq_max_len)
             bleu_scorer.register_minibatch(output.permute(1, 0, 2), trg.permute(1, 0))
             output_clipped = output[:, :trg.size()[-1], :]
             output_clipped = output_clipped.reshape(-1, output_clipped.shape[-1])
@@ -94,7 +94,7 @@ def parse_args():
     parser.add_argument('--test-seq-max-len',
                         help='maximum length of sequence that can be produced during testing',
                         type=int,
-                        default=64)
+                        default=25)
     parser.add_argument("--warmup-steps", help="Defines warmup steps during training", type=int, default=1)
     parser.add_argument("--d-model", help="Transformer model d_model param", type=int, default=512)
     parser.add_argument("--num-heads", help="Transformer model atention heads number", type=int, default=4)
@@ -180,7 +180,7 @@ if __name__ == "__main__":
         for epoch in range(N_EPOCHS):
             start_time = time.time()
             train_loss = train(model, train_loader, optimizer, criterion, CLIP)
-            valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer)
+            valid_loss, valid_bleu = evaluate(model, valid_loader, criterion, bleu_scorer, args.test_seq_max_len)
 
             save_model(model, args.checkpoint_dir, "transformer", valid_bleu > best_val_bleu)
             best_val_bleu = valid_bleu if valid_bleu > best_val_bleu else best_val_bleu
@@ -193,7 +193,7 @@ if __name__ == "__main__":
             print(f"Valid loss: {valid_loss:.3f}, PPL: {math.exp(valid_loss):7.3f}, BLEU: {round(100*valid_bleu, 2)}\n")
 
     else:
-        test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer)
+        test_loss, test_bleu = evaluate(model, test_loader, criterion, bleu_scorer, args.test_seq_max_len)
         print(f"Test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}")
-        test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer)
+        test_loss, test_bleu = evaluate(model, data.long_test_loader, criterion, bleu_scorer, args.test_seq_max_len)
         print(f"Long test loss: {test_loss:.3f}, PPL: {math.exp(test_loss):7.3f}, BLEU: {round(100*test_bleu, 2)}")
