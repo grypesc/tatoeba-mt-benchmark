@@ -34,7 +34,7 @@ class Transformer(nn.Module):
         self.positional_encoder = PositionalEncoder(parameters)
         self.encoder = Encoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)
         self.decoder = Decoder(self.d_model, self.d_ff, self.num_heads, self.num_layers, self.d_k, self.drop_out_rate)
-        self.output_dropout = nn.Dropout(0.5)
+        self.output_dropout = nn.Dropout(0.0)
         self.output_linear = nn.Linear(self.d_model, self.trg_vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
