@@ -9,7 +9,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from torch import Tensor
-from typing import Tuple
 
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, BleuScorer, save_model, parse_utils
@@ -131,7 +130,7 @@ class Decoder(nn.Module):
         return output, decoder_hidden.squeeze(0)
 
 
-class Seq2Seq(nn.Module):
+class EncDecAttn(nn.Module):
     def __init__(self,
                  encoder: nn.Module,
                  decoder: nn.Module,
@@ -249,7 +248,7 @@ if __name__ == '__main__':
     enc = Encoder(len(src_vocab), args.src_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, args.use_pretrained_embeddings)
     attn = Attention(args.enc_hid_dim, args.dec_hid_dim, args.attn_dim)
     dec = Decoder(len(trg_vocab), args.trg_embed_dim, args.enc_hid_dim, args.dec_hid_dim, args.embed_dropout, attn, args.use_pretrained_embeddings, args.decoder_dropout)
-    model = Seq2Seq(enc, dec, device, args.test_seq_max_len).to(device)
+    model = EncDecAttn(enc, dec, device, args.test_seq_max_len).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss(ignore_index=trg_vocab.stoi['<pad>'])

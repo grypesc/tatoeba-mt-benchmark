@@ -1,20 +1,49 @@
-import argparse
-import math
-import os
 import random
-import time
 import torch
 
 import torch.nn as nn
-import torch.optim as optim
 
-from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
-from criterions.rlst_criterion import RLSTCriterion
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
 torch.manual_seed(20)
+
+
+class Net(nn.Module):
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+        if use_pretrained_embeddings:
+            src_embed_dim = src_vocab.vectors.size()[1]
+            trg_embed_dim = trg_vocab.vectors.size()[1]
+            self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim).from_pretrained(src_vocab.vectors, freeze=True)
+            self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim).from_pretrained(trg_vocab.vectors, freeze=True)
+
+        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, bidirectional=False, dropout=rnn_dropout)
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
+
+    def forward(self, src, previous_output, rnn_state):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+        rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
+        rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
+        outputs = self.output(rnn_output)
+        return outputs, rnn_state
 
 
 class LeakyNet(nn.Module):
@@ -44,15 +73,15 @@ class LeakyNet(nn.Module):
             self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim).from_pretrained(src_vocab.vectors, freeze=True)
             self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim).from_pretrained(trg_vocab.vectors, freeze=True)
 
-        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim + 4, rnn_hid_dim, num_layers=rnn_num_layers, dropout=0.0)
+        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, dropout=0.0)
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
 
-    def forward(self, src, previous_output, bits, rnn_state):
+    def forward(self, src, previous_output, rnn_state):
         src_embedded = self.embedding_dropout(self.src_embedding(src))
         trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
-        rnn_input = torch.cat((src_embedded, trg_embedded, bits.unsqueeze(0)), dim=2)
+        rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
         rnn_output, rnn_state = self.rnn(rnn_input, rnn_state)
         leaky_out = self.activation(self.linear(rnn_output))
         leaky_out = self.rnn_dropout(leaky_out)
@@ -60,10 +89,167 @@ class LeakyNet(nn.Module):
         return outputs, rnn_state
 
 
-class RLST(nn.Module):
+class LeakyResidualApproximator(nn.Module):
+
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
+        self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
+        self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
+        self.activation = nn.LeakyReLU()
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
+
+    def forward(self, src, previous_output, rnn_states):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+
+        rnn_input = self.activation(self.embedding_linear(torch.cat((src_embedded, trg_embedded), dim=2)))
+        rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
+        res_out = None
+        for i, rnn in enumerate(self.rnns):
+            res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
+            rnn_input = res_out
+
+        leaky_output = self.rnn_dropout(self.activation(self.linear(res_out)))
+        outputs = self.output(leaky_output)
+        return outputs, rnn_new_states
+
+    @staticmethod
+    def _skip_rep(input, rnn, rnn_state):
+        rnn_output, rnn_new_state = rnn(input, rnn_state)
+        return input + rnn_output, rnn_new_state
+
+
+class MoneyShot(nn.Module):
+    """This is a residual leaky approximator where previous output embedding enters the net after the middle recurrent
+    layer. In theory it should simulate a queue, where recent observations are stored in prior layers, and old at farther
+    layers. Works bad for some reason."""
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.src_leaky = nn.Linear(src_embed_dim, rnn_hid_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.trg_leaky = nn.Linear(trg_embed_dim, rnn_hid_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
+        self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
+        self.activation = nn.LeakyReLU()
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 3)
+
+    def forward(self, src, previous_output, rnn_states):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        src_embedded = self.activation(self.src_leaky(src_embedded))
+        src_embedded = self.rnn_dropout(src_embedded)
+
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+        trg_embedded = self.activation(self.trg_leaky(trg_embedded))
+        trg_embedded = self.rnn_dropout(trg_embedded)
+
+        rnn_input = src_embedded
+        rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
+        res_out = None
+        for i, rnn in enumerate(self.rnns):
+            res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
+            rnn_input = res_out
+            if self.rnn_num_layers / (i + 1) == 2:
+                rnn_input += trg_embedded
+
+        leaky_output = self.rnn_dropout(self.activation(self.linear(res_out)))
+        outputs = self.output(leaky_output)
+        return outputs, rnn_new_states
+
+    @staticmethod
+    def _skip_rep(input, rnn, rnn_state):
+        rnn_output, rnn_new_state = rnn(input, rnn_state)
+        return input + rnn_output, rnn_new_state
+
+
+class ResidualApproximator9000(nn.Module):
+    """Policy neurons connected to GRU hidden states."""
+
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0,
+                 policy_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+        assert src_embed_dim + trg_embed_dim == rnn_hid_dim
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
+        self.policy_dropout = nn.Dropout(policy_dropout)
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab))
+        self.policy_output = nn.Linear(rnn_num_layers * rnn_hid_dim, 3)
+
+    def forward(self, src, previous_output, rnn_states):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+
+        rnn_input = torch.cat((src_embedded, trg_embedded), dim=2)
+        rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
+        res_out = None
+
+        for i, rnn in enumerate(self.rnns):
+            res_out, rnn_new_state = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
+            res_out = self.rnn_dropout(res_out)
+            rnn_input = res_out
+            rnn_new_states[i, :] = rnn_new_state
+
+        word_outputs = self.output(res_out)
+        policy_output = self.policy_output(rnn_new_states.reshape(rnn_new_states.size()[1], self.rnn_num_layers * self.rnn_hid_dim)).unsqueeze_(0)
+        policy_output = self.policy_dropout(policy_output)
+        outputs = torch.cat((word_outputs, policy_output), dim=2)
+        return outputs, rnn_new_states
+
+    def _skip_rep(self, input, rnn, rnn_state):
+        rnn_output, rnn_new_state = rnn(input, rnn_state)
+        return input + rnn_output, rnn_new_state
+
+
+class RLSTBoth(nn.Module):
     """
-    This class implements RLST algorithm presented in the paper. Given batch size of n, it creates n partially observable
-    training or testing environments in which n agents operate in order to transform source sequences into the target ones.
+    This version of RLST has additional both action, that reads and writes at the same time.
     """
 
     def __init__(self, net, device, testing_episode_max_time, trg_vocab_len, discount, m,
@@ -106,10 +292,6 @@ class RLST(nn.Module):
         naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
         terminated_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)
 
-        bits = torch.zeros((batch_size, 4), device=device)
-        bits[:, 0] = 1.0
-        bits[:, 3] = 1.0
-
         i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
         j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
@@ -119,7 +301,7 @@ class RLST(nn.Module):
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
-            output, rnn_state = self.net(input, word_output, bits, rnn_state)
+            output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
 
@@ -157,16 +339,11 @@ class RLST(nn.Module):
                 word_output = torch.gather(trg, 0, old_j)
             word_output[reading_agents] = self.TRG_NULL
 
-            bits = torch.zeros((batch_size, 4), device=device)
-            bits[torch.gather(src, 0, i).squeeze(0) == self.SRC_EOS, 1] = 1.0
-            bits[agents_outputting.squeeze(0), 2] = 1.0
-            bits[(reading_agents + bothing_agents).squeeze(0), 3] = 1.0
-
             with torch.no_grad():
                 _input = torch.gather(src, 0, i)
                 _input[writing_agents] = self.SRC_NULL
                 _input[naughty_agents] = self.SRC_EOS
-                _output, _ = self.net(_input, word_output, bits, rnn_state)
+                _output, _ = self.net(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -3:], 2)
 
                 reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-3], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
@@ -199,15 +376,11 @@ class RLST(nn.Module):
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
-        bits = torch.zeros((batch_size, 4), device=device)
-        bits[:, 0] = 1.0
-        bits[:, 3] = 1.0
-
         while True:
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
-            output, rnn_state = self.net(input, word_output, bits, rnn_state)
+            output, rnn_state = self.net(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-3], dim=2)
             action = torch.max(output[:, :, -3:], 2)[1]
 
@@ -230,170 +403,7 @@ class RLST(nn.Module):
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = self.TRG_NULL
 
-            bits = torch.zeros((batch_size, 4), device=device)
-            bits[torch.gather(src, 0, i).squeeze(0) == self.SRC_EOS, 1] = 1.0
-            bits[agents_outputting.squeeze(0), 2] = 1.0
-            bits[(reading_agents + bothing_agents).squeeze(0), 3] = 1.0
-
             if t >= self.testing_episode_max_time - 1:
                 return word_outputs, None, None, actions_count.unsqueeze_(dim=1)
             t += 1
-
-
-def train_epoch(optimizer, epsilon, teacher_forcing, clip):
-    model.train()
-    rlst_criterion.train()
-    epoch_mistranslation_loss = 0
-    epoch_policy_loss = 0
-    policy_multiplier = None
-    total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
-    for iteration, (src, trg) in enumerate(train_loader, 1):
-        src, trg = src.to(device), trg.to(device)
-        word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
-        total_actions += actions.cumsum(dim=1)
-        optimizer.zero_grad()
-        word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
-        trg = trg.view(-1)
-
-        loss, mistranslation_loss, policy_loss, policy_multiplier = rlst_criterion(word_outputs, trg, Q_used, Q_target)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-        optimizer.step()
-        epoch_mistranslation_loss += mistranslation_loss.item()
-        epoch_policy_loss += policy_loss.item()
-    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist(), policy_multiplier
-
-
-def evaluate_epoch(loader, bleu_scorer):
-    model.eval()
-    rlst_criterion.eval()
-    epoch_loss, epoch_bleu = 0, 0
-    total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
-    with torch.no_grad():
-        for iteration, (src, trg) in enumerate(loader):
-            src, trg = src.to(device), trg.to(device)
-            word_outputs, _, _, actions = model(src)
-            total_actions += actions.cumsum(dim=1)
-            bleu_scorer.register_minibatch(word_outputs, trg)
-            word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
-            word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
-            trg = trg.view(-1)
-            _, _mistranslation_loss, _, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0)
-            epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parse_utils(parser)
-    parser.add_argument('--testing-episode-max-time',
-                        help='maximum episode time during testing after which agents are terminated, '
-                             'if too low it will disallow agents to transform long sequences',
-                        type=int,
-                        default=64)
-    parser.add_argument('--rnn-hid-dim',
-                        help='approximator\'s rnn hidden size',
-                        type=int,
-                        default=512)
-    parser.add_argument('--rnn-num-layers',
-                        help='number of rnn layers',
-                        type=int,
-                        default=2)
-    parser.add_argument('--rnn-dropout',
-                        help='dropout between rnn layers',
-                        type=float,
-                        default=0.00)
-    parser.add_argument('--discount',
-                        help='discount',
-                        type=float,
-                        default=0.90)
-    parser.add_argument('--epsilon',
-                        help='epsilon for epsilon-greedy strategy',
-                        type=float,
-                        default=0.15)
-    parser.add_argument('--teacher-forcing',
-                        help='teacher forcing',
-                        type=float,
-                        default=0.5)
-    parser.add_argument('--M',
-                        help='punishment for reading after reading eos',
-                        type=float,
-                        default=3.0)
-    parser.add_argument('--N',
-                        help='estimated number of training mini batches after which policy loss multiplier will be close '
-                        'to its asymptote/maximum value',
-                        type=float,
-                        default=50_000)
-    parser.add_argument('--eta-min',
-                        help='minimum eta value',
-                        type=float,
-                        default=0.02)
-    parser.add_argument('--eta-max',
-                        help='eta maximum value, its asymptote',
-                        type=float,
-                        default=0.2)
-    parser.add_argument('--rho',
-                        help='rho for moving exponential average of losses weights',
-                        type=float,
-                        default=0.99)
-    return parser.parse_args()
-
-
-if __name__ == '__main__':
-    args = parse_args()
-
-    data = DataPipeline(batch_size=args.batch_size, src_lang=args.src, trg_lang=args.trg, null_replaces_bos=True,
-                        token_min_freq=args.token_min_freq, use_pretrained_embeds=args.use_pretrained_embeddings)
-    src_vocab = data.src_vocab
-    trg_vocab = data.trg_vocab
-    train_loader = data.train_loader
-    valid_loader = data.valid_loader
-    test_loader = data.test_loader
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    net = LeakyNet(src_vocab, trg_vocab, args.use_pretrained_embeddings, args.rnn_hid_dim, args.rnn_dropout, args.rnn_num_layers,
-                               args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
-    if args.load_model_name:
-        net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
-    model = RLST(net, device, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
-                 src_vocab.stoi['<eos>'],
-                 src_vocab.stoi['<null>'],
-                 src_vocab.stoi['<pad>'],
-                 trg_vocab.stoi['<eos>'],
-                 trg_vocab.stoi['<null>'],
-                 trg_vocab.stoi['<pad>'])
-
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    rlst_criterion = RLSTCriterion(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max)
-
-    print(vars(args))
-    print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
-    print(net)
-    
-    bleu_scorer = BleuScorer(trg_vocab, device)
-    best_val_bleu = 0.0
-
-    if not args.test:
-        for epoch in range(args.epochs):
-            start_time = time.time()
-            train_loss, policy_loss, train_actions, last_policy_multiplier = train_epoch(optimizer, args.epsilon, args.teacher_forcing, args.clip)
-            val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
-
-            save_model(net, args.checkpoint_dir, "rlst", val_bleu > best_val_bleu)
-            best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
-
-            end_time = time.time()
-            epoch_mins, epoch_secs = epoch_time(start_time, end_time)
-
-            print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-            print('Train loss: {}, PPL: {}, policy loss: {}, eta: {}, epsilon: {}, action ratio: {}'
-                  .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
-            print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
-
-    else:
-        test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
-        print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
-        test_loss, test_bleu, test_actions = evaluate_epoch(data.long_test_loader, bleu_scorer)
-        print('Test-long loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
 
