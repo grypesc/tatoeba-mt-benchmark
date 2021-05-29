@@ -4,8 +4,8 @@ high flexibility for research purposes. Datasets are tokenized with Spacy tokeni
 DataPipeline objects deliver vocabs and Torch data loaders. FastText pretrained embeddings are also available. Main 
 evaluation method is perplexity and BLEU score based on torchtext implementation. Currently implemented models:
 * enc_dec_attn.py - Bidirectional encoder-decoder with attention.
-* rlst.py - Recurrent Q-learning algorithm with agents translating on-line.
-* transformer.py - Standard transformer architecture
+* rlst.py - Reinforcement Learning for on-line Sequence Transformation.
+* transformer.py - A standard transformer architecture
 
 Setup:
 ```bash
@@ -73,7 +73,7 @@ python transformer.py --src en --trg es --lr 3e-4 --checkpoint-dir checkpoints/t
 ```
 To repeat results for other language pairs change value of ```--src``` and ```--trg``` parameters. 
 
-Models are saved and evaluated on validation set after every epoch. The benchamrk saves always the last and the best model
+Models are saved and evaluated on validation set after every epoch. The benchmark always saves last and the best model
 according to its BLEU score on validation set. For more information and hyperparameters:
 ```python3
 python rlst.py --help
