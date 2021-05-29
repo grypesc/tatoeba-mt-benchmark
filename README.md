@@ -44,23 +44,37 @@ supported: (en, es, fr, de, zh, ru), so that's 30 combinations:
 python generate_datasets.py --src en --trg es
 ```
 
-Now you can train models using command line:
+To repeat paper results for en-es language pair, firstly train models using following commands:
 ```python3
-CUDA_VISIBLE_DEVICES=0 python enc_dec_attn.py --src en --trg es --token_min_freq 3 --epochs 30 --embed_dropout 0.2 --enc_hid_dim 256 --dec_hid_dim 256 --attn_dim 64
+python enc_dec_attn.py --src en --trg es --embed-dropout 0.2  --decoder-dropout 0.5 --checkpoint-dir  checkpoints/enc-en-es \
+--enc-hid-dim 256 --dec-hid-dim 256 --weight-decay 1e-5 --teacher-forcing 1.0 --epochs 50 --attn-dim 64 --batch-size 128 --lr 3e-4 
 ```
 ```python3 
-CUDA_VISIBLE_DEVICES=0 python rlst.py --src en --trg es --token-min-freq 1 --checkpoint-dir checkpoints \
---testing-episode-max-time 64 --batch-size 128 --lr 1e-3 --clip 1.0 --weight-decay 1e-5 \ 
---rnn-hid-dim 768 --rnn-num-layers 2 --rnn-dropout 0.2 --epsilon 0.15 --N 50000 --discount 0.90
+python rlst.py --src en --trg es --checkpoint-dir checkpoints/rlst-en-es --rnn-hid-dim 512 --teacher-forcing 1.0 \
+--epochs 50 --lr 3e-4 --weight-decay 1e-5 --rnn-num-layers 4 --rnn-dropout 0.5 --embed-dropout 0.2 --N 50000 \
+--eta-min 0.02 --eta-max 0.2 --rho 0.99
 ```
-Models are saved and evaluated on validation set after every epoch.
-To test models on test and long test sets use:
+```python3 
+python transformer.py --src en --trg es --lr 3e-4 --checkpoint-dir checkpoints/trans-en-es --num-heads 8 --epochs 50 \
+--dropout 0.25 --embed-dropout 0.2 --weight-decay 1e-4 --d-ffn 512 --num-layers 6 --batch-size 128 --d-model 256
+```
+Now test models on test and long test sets:
 ```python3
-CUDA_VISIBLE_DEVICES=0 python enc-dec-attn.py --src en --trg es --test --batch-size 32 --test-seq-max-len 256 \
---load-model-name enc-dec-attn-best.pth --enc-hid-dim 128 --dec-hid-dim 128 --attn-dim 32
+python enc_dec_attn.py --src en --trg es --checkpoint-dir checkpoints/enc-en-es --enc-hid-dim 256 --dec-hid-dim 256 \
+--attn-dim 64 --batch-size 32 --test --test-seq-max-len 400 --load-model-name enc_dec_attn_best.pth
 ```
+```python3 
+python rlst.py --src en --trg es --checkpoint-dir checkpoints/rlst-en-es --rnn-hid-dim 512 --rnn-num-layers 4 --test \
+--batch-size 32 --testing-episode-max-time 512 --load-model-name rlst_best.pth
+```
+```python3 
+python transformer.py --src en --trg es --lr 3e-4 --checkpoint-dir checkpoints/trans-en-es --num-heads 8 --epochs 50 \
+--d-ffn 512 --num-layers 6 --test --test-seq-max-len 400 --batch-size 32 --d-model 256 --load-model-name transformer_best.pth
+```
+To repeat results for other language pairs change value of ```--src``` and ```--trg``` parameters. 
 
-Type for more info and hyperparameters:
+Models are saved and evaluated on validation set after every epoch. The benchamrk saves always the last and the best model
+according to its BLEU score on validation set. For more information and hyperparameters:
 ```python3
 python rlst.py --help
 ```
