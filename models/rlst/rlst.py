@@ -107,11 +107,10 @@ class RLST(nn.Module):
     training or testing environments in which n interpreter agents operate in order to transform source sequences into the target ones.
     """
 
-    def __init__(self, net, device, testing_episode_max_time, trg_vocab_len, discount, m,
+    def __init__(self, approximator, device, testing_episode_max_time, trg_vocab_len, discount, m,
                  src_eos_index, src_null_index, src_pad_index, trg_eos_index, trg_null_index, trg_pad_index):
         super().__init__()
-        self.net = net
-        self.device = device
+        self.approximator = approximator
         self.testing_episode_max_time = testing_episode_max_time
         self.trg_vocab_len = trg_vocab_len
         self.DISCOUNT = discount
@@ -132,12 +131,12 @@ class RLST(nn.Module):
         return self._testing_episode(src)
 
     def _training_episode(self, src, trg, epsilon, teacher_forcing):
-        device = self.device
+        device = src.device
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         trg_seq_len = trg.size()[0]
         word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
-        rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
+        rnn_state = torch.zeros((self.approximator.rnn_num_layers, batch_size, self.approximator.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((trg_seq_len, batch_size, self.trg_vocab_len), device=device)
         Q_used = torch.zeros((src_seq_len + trg_seq_len - 1, batch_size), device=device)
@@ -156,7 +155,7 @@ class RLST(nn.Module):
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
-            output, rnn_state = self.net(input, word_output, rnn_state)
+            output, rnn_state = self.approximator(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-2], dim=2)
             action = torch.max(output[:, :, -2:], 2)[1]
 
@@ -195,7 +194,7 @@ class RLST(nn.Module):
                 _input = torch.gather(src, 0, i)
                 _input[writing_agents] = self.SRC_NULL
                 _input[naughty_agents] = self.SRC_EOS
-                _output, _ = self.net(_input, word_output, rnn_state)
+                _output, _ = self.approximator(_input, word_output, rnn_state)
                 next_best_action_value, _ = torch.max(_output[:, :, -2:], 2)
 
                 reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-2], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
@@ -211,11 +210,11 @@ class RLST(nn.Module):
             t += 1
 
     def _testing_episode(self, src):
-        device = self.device
+        device = src.device
         batch_size = src.size()[1]
         src_seq_len = src.size()[0]
         word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
-        rnn_state = torch.zeros((self.net.rnn_num_layers, batch_size, self.net.rnn_hid_dim), device=device)
+        rnn_state = torch.zeros((self.approximator.rnn_num_layers, batch_size, self.approximator.rnn_hid_dim), device=device)
 
         word_outputs = torch.zeros((self.testing_episode_max_time, batch_size, self.trg_vocab_len), device=device)
 
@@ -232,7 +231,7 @@ class RLST(nn.Module):
             input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
-            output, rnn_state = self.net(input, word_output, rnn_state)
+            output, rnn_state = self.approximator(input, word_output, rnn_state)
             _, word_output = torch.max(output[:, :, :-2], dim=2)
             action = torch.max(output[:, :, -2:], 2)[1]
 
