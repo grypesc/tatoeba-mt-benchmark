@@ -86,19 +86,58 @@ class LeakyResidualApproximator(nn.Module):
         rnn_input = self.activation(self.embedding_linear(torch.cat((src_embedded, trg_embedded), dim=2)))
         rnn_input = self.embedding_dropout(rnn_input)
         rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
-        res_out = None
         for i, rnn in enumerate(self.rnns):
-            res_out, rnn_new_states[i, :] = self._skip_rep(rnn_input, rnn, rnn_states[i:i + 1])
-            rnn_input = res_out
+            rnn_out, rnn_new_states[i, :] = rnn(rnn_input, rnn_states[i:i + 1])
+            rnn_input = rnn_out + rnn_input
 
-        leaky_output = self.rnn_dropout(self.activation(self.linear(res_out)))
+        leaky_output = self.rnn_dropout(self.activation(self.linear(rnn_input)))
         outputs = self.output(leaky_output)
         return outputs, rnn_new_states
 
-    @staticmethod
-    def _skip_rep(input, rnn, rnn_state):
-        rnn_output, rnn_new_state = rnn(input, rnn_state)
-        return input + rnn_output, rnn_new_state
+
+class LeakyResidualNormApproximator(nn.Module):
+    """Residual approximator for RLST. 'Simply the best.' - Tina Turner
+    Currently does not support pretrained embeddings."""
+    def __init__(self,
+                 src_vocab,
+                 trg_vocab,
+                 use_pretrained_embeddings,
+                 rnn_hid_dim,
+                 rnn_dropout,
+                 rnn_num_layers,
+                 src_embed_dim=256,
+                 trg_embed_dim=256,
+                 embedding_dropout=0.0):
+        super().__init__()
+
+        self.rnn_hid_dim = rnn_hid_dim
+        self.rnn_num_layers = rnn_num_layers
+        self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim)
+        self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.rnn_dropout = nn.Dropout(rnn_dropout)
+        self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
+        self.norm = nn.ModuleList(nn.LayerNorm(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers + 2))
+        self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
+        self.activation = nn.LeakyReLU()
+        self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 2)
+
+    def forward(self, src, previous_output, rnn_states):
+        src_embedded = self.embedding_dropout(self.src_embedding(src))
+        trg_embedded = self.embedding_dropout(self.trg_embedding(previous_output))
+
+        rnn_input = self.norm[0](self.embedding_linear(torch.cat((src_embedded, trg_embedded), dim=2)))
+        rnn_input = self.embedding_dropout(self.activation(rnn_input))
+        rnn_new_states = torch.zeros(rnn_states.size(), device=src_embedded.device)
+        for i, rnn in enumerate(self.rnns):
+            rnn_out, rnn_new_states[i, :] = rnn(rnn_input, rnn_states[i:i + 1])
+            rnn_input = rnn_out + rnn_input
+            rnn_input = self.norm[i + 1](rnn_input)
+
+        leaky_output = self.rnn_dropout(self.activation(self.norm[-1](self.linear(rnn_input))))
+        outputs = self.output(leaky_output)
+        return outputs, rnn_new_states
 
 
 class RLST(nn.Module):
