@@ -25,12 +25,12 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     policy_multiplier = None
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
-        src, trg = src.T.to(device), trg.T.to(device)
+        src, trg = src.to(device), trg.to(device)
         word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
         total_actions += actions.cumsum(dim=1)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
-        trg = trg.reshape(-1)
+        trg = trg.view(-1)
 
         loss, mistranslation_loss, policy_loss, policy_multiplier = rlst_criterion(word_outputs, trg, Q_used, Q_target)
         loss.backward()
@@ -48,13 +48,13 @@ def evaluate_epoch(loader, bleu_scorer):
     total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
-            src, trg = src.T.to(device), trg.T.to(device)
+            src, trg = src.to(device), trg.to(device)
             word_outputs, _, _, actions = model(src)
             total_actions += actions.cumsum(dim=1)
-            bleu_scorer.register_minibatch(word_outputs.permute(1, 0, 2), trg.T)
-            word_outputs_clipped = word_outputs[:, :trg.size()[1], :]
-            word_outputs_clipped = word_outputs_clipped.reshape(-1, word_outputs_clipped.shape[-1])
-            trg = trg.reshape(-1)
+            bleu_scorer.register_minibatch(word_outputs, trg)
+            word_outputs_clipped = word_outputs[:trg.size()[0], :, :]
+            word_outputs_clipped = word_outputs_clipped.view(-1, word_outputs_clipped.shape[-1])
+            trg = trg.view(-1)
             _, _mistranslation_loss, _, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0)
             epoch_loss += _mistranslation_loss.item()
     return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     print(vars(args))
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
     print(net)
-    
+
     bleu_scorer = BleuScorer(trg_vocab, device)
     best_val_bleu = 0.0
 

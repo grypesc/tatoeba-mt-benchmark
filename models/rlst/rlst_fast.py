@@ -36,7 +36,7 @@ class LeakyNet(nn.Module):
             self.src_embedding = nn.Embedding(len(src_vocab), src_embed_dim).from_pretrained(src_vocab.vectors, freeze=True)
             self.trg_embedding = nn.Embedding(len(trg_vocab), trg_embed_dim).from_pretrained(trg_vocab.vectors, freeze=True)
 
-        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, dropout=0.0, batch_first=True)
+        self.rnn = nn.GRU(src_embed_dim + trg_embed_dim, rnn_hid_dim, num_layers=rnn_num_layers, dropout=0.0)
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 2)
@@ -74,7 +74,7 @@ class LeakyResidualApproximator(nn.Module):
         self.embedding_dropout = nn.Dropout(embedding_dropout)
         self.rnn_dropout = nn.Dropout(rnn_dropout)
         self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
-        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim, batch_first=True) for _ in range(rnn_num_layers)])
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 2)
@@ -117,8 +117,8 @@ class LeakyResidualNormApproximator(nn.Module):
         self.embedding_dropout = nn.Dropout(embedding_dropout)
         self.rnn_dropout = nn.Dropout(rnn_dropout)
         self.embedding_linear = nn.Linear(src_embed_dim + trg_embed_dim, rnn_hid_dim)
-        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim, batch_first=True) for _ in range(rnn_num_layers)])
-        self.norm = nn.ModuleList(nn.LayerNorm(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers + 1))
+        self.rnns = nn.ModuleList([nn.GRU(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers)])
+        self.norm = nn.ModuleList(nn.LayerNorm(rnn_hid_dim, rnn_hid_dim) for _ in range(rnn_num_layers + 2))
         self.linear = nn.Linear(rnn_hid_dim, rnn_hid_dim)
         self.activation = nn.LeakyReLU()
         self.output = nn.Linear(rnn_hid_dim, len(trg_vocab) + 2)
@@ -135,7 +135,7 @@ class LeakyResidualNormApproximator(nn.Module):
             rnn_input = rnn_out + rnn_input
             rnn_input = self.norm[i + 1](rnn_input)
 
-        leaky_output = self.rnn_dropout(self.activation(self.linear(rnn_input)))
+        leaky_output = self.rnn_dropout(self.activation(self.norm[-1](self.linear(rnn_input))))
         outputs = self.output(leaky_output)
         return outputs, rnn_new_states
 
@@ -171,47 +171,36 @@ class RLST(nn.Module):
         return self._testing_episode(src)
 
     def _training_episode(self, src, trg, epsilon, teacher_forcing):
-        """
-        :param src: Tensor of shape batch size x src seq length
-        :param trg: Tensor of shape batch size x trg seq length
-        :param epsilon: Probability of random action in epsilon greedy strategy
-        :param teacher_forcing: Probability of output being ground truth at each time step
-        :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
-        :return: Q_used: Tensor of shape batch size x time . Containes Q values of actions taken by agents
-        :return: Q_target: Tensor of shape batch size x time. Containes best Q values in next time step w.r.t Q_used
-        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write, both
-        """
-
         device = src.device
-        batch_size = src.size()[0]
-        src_seq_len = src.size()[1]
-        trg_seq_len = trg.size()[1]
-        word_output = torch.full((batch_size, 1), int(self.TRG_NULL), device=device)
+        batch_size = src.size()[1]
+        src_seq_len = src.size()[0]
+        trg_seq_len = trg.size()[0]
+        word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.approximator.rnn_num_layers, batch_size, self.approximator.rnn_hid_dim), device=device)
 
-        token_probs = torch.zeros((batch_size, trg_seq_len, self.trg_vocab_len), device=device)
-        Q_used = torch.zeros((batch_size, src_seq_len + trg_seq_len - 1), device=device)
-        Q_target = torch.zeros((batch_size, src_seq_len + trg_seq_len - 1), device=device, requires_grad=False)
+        token_probs = torch.zeros((trg_seq_len, batch_size, self.trg_vocab_len), device=device)
+        Q_used = torch.zeros((src_seq_len + trg_seq_len - 1, batch_size), device=device)
+        Q_target = torch.zeros((src_seq_len + trg_seq_len - 1, batch_size), device=device, requires_grad=False)
 
-        terminated_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)
+        terminated_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)
 
-        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # input indices
-        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # output indices
+        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
+        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
-        input = torch.gather(src, 1, i)
+        input = torch.gather(src, 0, i)
         output, rnn_state = self.approximator(input, word_output, rnn_state)
         action = torch.max(output[:, :, -2:], 2)[1]
 
         while True:
             _, word_output = torch.max(output[:, :, :-2], dim=2)
-            random_action_agents = torch.rand((batch_size, 1), device=device) < epsilon
-            random_action = torch.randint(low=0, high=2, size=(batch_size, 1), device=device)
+            random_action_agents = torch.rand((1, batch_size), device=device) < epsilon
+            random_action = torch.randint(low=0, high=2, size=(1, batch_size), device=device)
             action[random_action_agents] = random_action[random_action_agents]
 
-            Q_used[:, t] = torch.gather(output[:, 0, -2:], 1, action.T).squeeze_(0)
-            Q_used[terminated_agents.squeeze(1), t] = 0
+            Q_used[t, :] = torch.gather(output[0, :, -2:], 1, action.T).squeeze_(1)
+            Q_used[t, terminated_agents.squeeze(0)] = 0
 
             with torch.no_grad():
                 reading_agents = ~terminated_agents * (action == 0)
@@ -220,35 +209,34 @@ class RLST(nn.Module):
                 actions_count[0] += reading_agents.sum()
                 actions_count[1] += writing_agents.sum()
 
-                just_terminated_agents = writing_agents * (torch.gather(trg, 1, j) == self.TRG_EOS)
-                naughty_agents = reading_agents * (torch.gather(src, 1, i) == self.SRC_EOS)
+                just_terminated_agents = writing_agents * (torch.gather(trg, 0, j) == self.TRG_EOS).squeeze_(0)
+                naughty_agents = reading_agents * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
                 i = i + ~naughty_agents * reading_agents
                 old_j = j
                 j = j + writing_agents * ~just_terminated_agents
                 terminated_agents = terminated_agents + just_terminated_agents
 
                 if random.random() < teacher_forcing:
-                    word_output = torch.gather(trg, 1, old_j)
+                    word_output = torch.gather(trg, 0, old_j)
                 word_output[reading_agents] = self.TRG_NULL
 
-                reward = (-1) * self.mistranslation_loss_per_word(output[:, 0, :-2], torch.gather(trg, 1, old_j)[:, 0])
+                reward = (-1) * self.mistranslation_loss_per_word(output[0, :, :-2], torch.gather(trg, 0, old_j)[0, :]).unsqueeze(0)
 
-            token_probs[writing_agents.squeeze(1), old_j[writing_agents], :] = output[writing_agents.squeeze(1), 0, :-2]
+            token_probs[old_j[writing_agents], writing_agents.squeeze(0), :] = output[0, writing_agents.squeeze(0), :-2]
 
-            input = torch.gather(src, 1, i)
+            input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.approximator(input, word_output, rnn_state)
             next_best_action_value, action = torch.max(output[:, :, -2:], 2)
-            next_best_action_value = next_best_action_value.squeeze_(1)
 
             with torch.no_grad():
-                Q_target[:, t] = reward + self.DISCOUNT * next_best_action_value
-                Q_target[terminated_agents.squeeze(1), t] = 0
-                Q_target[reading_agents.squeeze(1), t] = next_best_action_value[reading_agents.squeeze(1)]
-                Q_target[(reading_agents * naughty_agents).squeeze(1), t] = self.DISCOUNT * next_best_action_value[reading_agents.squeeze(1) * naughty_agents.squeeze(1)]
-                Q_target[just_terminated_agents.squeeze(1), t] = reward[just_terminated_agents.squeeze(1)]
-                Q_target[naughty_agents.squeeze(1), t] -= self.M
+                Q_target[t, :] = reward + self.DISCOUNT * next_best_action_value
+                Q_target[t, terminated_agents.squeeze(0)] = 0
+                Q_target[t, reading_agents.squeeze(0)] = next_best_action_value[reading_agents]
+                Q_target[t, (reading_agents * naughty_agents).squeeze(0)] = self.DISCOUNT * next_best_action_value[reading_agents * naughty_agents]
+                Q_target[t, just_terminated_agents.squeeze(0)] = reward[just_terminated_agents]
+                Q_target[t, naughty_agents.squeeze(0)] -= self.M
 
                 if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 2:
                     return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=1)
@@ -256,24 +244,24 @@ class RLST(nn.Module):
 
     def _testing_episode(self, src):
         device = src.device
-        batch_size = src.size()[0]
-        src_seq_len = src.size()[1]
-        word_output = torch.full((batch_size, 1), int(self.TRG_NULL), device=device)
+        batch_size = src.size()[1]
+        src_seq_len = src.size()[0]
+        word_output = torch.full((1, batch_size), int(self.TRG_NULL), device=device)
         rnn_state = torch.zeros((self.approximator.rnn_num_layers, batch_size, self.approximator.rnn_hid_dim), device=device)
 
-        token_probs = torch.zeros((batch_size, self.testing_episode_max_time, self.trg_vocab_len), device=device)
+        token_probs = torch.zeros((self.testing_episode_max_time, batch_size, self.trg_vocab_len), device=device)
 
-        writing_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)
-        naughty_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)  # Want more input after input eos
-        after_eos_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)  # Already outputted EOS
+        writing_agents = torch.full((1, batch_size), False, device=device, requires_grad=False)
+        naughty_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Want more input after input eos
+        after_eos_agents = torch.full((1, batch_size,), False, device=device, requires_grad=False)  # Already outputted EOS
 
-        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # input indices
-        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # output indices
+        i = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # input indices
+        j = torch.zeros(size=(1, batch_size), dtype=torch.long, device=device, requires_grad=False)  # output indices
         t = 0  # time
         actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
 
         while True:
-            input = torch.gather(src, 1, i)
+            input = torch.gather(src, 0, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
             output, rnn_state = self.approximator(input, word_output, rnn_state)
@@ -286,10 +274,10 @@ class RLST(nn.Module):
             actions_count[0] += (~after_eos_agents * reading_agents).sum()
             actions_count[1] += (~after_eos_agents * writing_agents).sum()
 
-            token_probs[writing_agents.squeeze(1), j[writing_agents], :] = output[writing_agents.squeeze(1), 0, :-2]
+            token_probs[j[writing_agents], writing_agents.squeeze(0), :] = output[0, writing_agents.squeeze(0), :-2]
 
             after_eos_agents += (word_output == self.TRG_EOS)
-            naughty_agents = reading_agents * (torch.gather(src, 1, i) == self.SRC_EOS)
+            naughty_agents = reading_agents * (torch.gather(src, 0, i) == self.SRC_EOS).squeeze_(0)
             i = i + ~naughty_agents * reading_agents
             j = j + writing_agents
 
