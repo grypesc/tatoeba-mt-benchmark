@@ -133,13 +133,11 @@ if __name__ == '__main__':
                                     args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
     if args.load_model_name:
         net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
-    model = RLST(net, device, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
+    model = RLST(net, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
                  src_vocab.stoi['<eos>'],
                  src_vocab.stoi['<null>'],
-                 src_vocab.stoi['<pad>'],
                  trg_vocab.stoi['<eos>'],
-                 trg_vocab.stoi['<null>'],
-                 trg_vocab.stoi['<pad>'])
+                 trg_vocab.stoi['<null>'])
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     rlst_criterion = RLSTCriterion(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max)

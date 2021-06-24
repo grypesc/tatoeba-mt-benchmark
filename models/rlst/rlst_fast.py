@@ -147,8 +147,8 @@ class RLST(nn.Module):
     At time t each agent can be at different indices in input and output sequences, this indices are vectors i and j.
     """
 
-    def __init__(self, approximator, device, testing_episode_max_time, trg_vocab_len, discount, m,
-                 src_eos_index, src_null_index, src_pad_index, trg_eos_index, trg_null_index, trg_pad_index):
+    def __init__(self, approximator, testing_episode_max_time, trg_vocab_len, discount, m,
+                 src_eos_index, src_null_index, trg_eos_index, trg_null_index):
         super().__init__()
         self.approximator = approximator
         self.testing_episode_max_time = testing_episode_max_time
@@ -156,14 +156,12 @@ class RLST(nn.Module):
         self.DISCOUNT = discount
         self.M = m  # Read after eos punishment
 
-        self.SRC_EOS = torch.tensor([src_eos_index], device=device)
-        self.SRC_NULL = torch.tensor([src_null_index], device=device)
-        self.SRC_PAD = torch.tensor([src_pad_index], device=device)
-        self.TRG_EOS = torch.tensor([trg_eos_index], device=device)
-        self.TRG_NULL = torch.tensor([trg_null_index], device=device)
-        self.TRG_PAD = torch.tensor([trg_pad_index], device=device)
+        self.SRC_EOS = src_eos_index
+        self.SRC_NULL = src_null_index
+        self.TRG_EOS = trg_eos_index
+        self.TRG_NULL = trg_null_index
 
-        self.mistranslation_loss_per_token = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
+        self.mistranslation_loss_per_token = nn.CrossEntropyLoss(reduction='none')
 
     def forward(self, src, trg=None, epsilon=0, teacher_forcing=0):
         if self.training:
@@ -260,7 +258,7 @@ class RLST(nn.Module):
         :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
         :return: None
         :return: None
-        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write, both
+        :return: actions_count: Tensor of shape 2. Contains number of actions taken by agents: read, write
         """
 
         device = src.device
