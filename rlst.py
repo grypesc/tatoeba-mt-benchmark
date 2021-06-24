@@ -23,7 +23,7 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     epoch_mistranslation_loss = 0
     epoch_policy_loss = 0
     policy_multiplier = None
-    total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
+    total_actions = torch.zeros((2, 1), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
         src, trg = src.T.to(device), trg.T.to(device)
         word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
@@ -45,7 +45,7 @@ def evaluate_epoch(loader, bleu_scorer):
     model.eval()
     rlst_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
-    total_actions = torch.zeros((3, 1), dtype=torch.long, device=device)
+    total_actions = torch.zeros((2, 1), dtype=torch.long, device=device)
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.T.to(device), trg.T.to(device)

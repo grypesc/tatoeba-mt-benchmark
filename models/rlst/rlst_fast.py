@@ -163,7 +163,7 @@ class RLST(nn.Module):
         self.TRG_NULL = torch.tensor([trg_null_index], device=device)
         self.TRG_PAD = torch.tensor([trg_pad_index], device=device)
 
-        self.mistranslation_loss_per_word = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
+        self.mistranslation_loss_per_token = nn.CrossEntropyLoss(ignore_index=int(self.TRG_PAD), reduction='none')
 
     def forward(self, src, trg=None, epsilon=0, teacher_forcing=0):
         if self.training:
@@ -179,7 +179,7 @@ class RLST(nn.Module):
         :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
         :return: Q_used: Tensor of shape batch size x time . Containes Q values of actions taken by agents
         :return: Q_target: Tensor of shape batch size x time. Containes best Q values in next time step w.r.t Q_used
-        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write, both
+        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write
         """
 
         device = src.device
@@ -191,14 +191,14 @@ class RLST(nn.Module):
 
         token_probs = torch.zeros((batch_size, trg_seq_len, self.trg_vocab_len), device=device)
         Q_used = torch.zeros((batch_size, src_seq_len + trg_seq_len - 1), device=device)
-        Q_target = torch.zeros((batch_size, src_seq_len + trg_seq_len - 1), device=device, requires_grad=False)
+        Q_target = torch.zeros((batch_size, src_seq_len + trg_seq_len - 1), device=device)
 
-        terminated_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)
+        terminated_agents = torch.full((batch_size, 1), False, device=device)
 
-        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # input indices
-        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # output indices
+        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
+        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
         t = 0  # time
-        actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
+        actions_count = torch.zeros(2, dtype=torch.long, device=device)
 
         input = torch.gather(src, 1, i)
         output, rnn_state = self.approximator(input, word_output, rnn_state)
@@ -231,7 +231,7 @@ class RLST(nn.Module):
                     word_output = torch.gather(trg, 1, old_j)
                 word_output[reading_agents] = self.TRG_NULL
 
-                reward = (-1) * self.mistranslation_loss_per_word(output[:, 0, :-2], torch.gather(trg, 1, old_j)[:, 0])
+                reward = (-1) * self.mistranslation_loss_per_token(output[:, 0, :-2], torch.gather(trg, 1, old_j)[:, 0])
 
             token_probs[writing_agents.squeeze(1), old_j[writing_agents], :] = output[writing_agents.squeeze(1), 0, :-2]
 
@@ -255,6 +255,14 @@ class RLST(nn.Module):
             t += 1
 
     def _testing_episode(self, src):
+        """
+        :param src: Tensor of shape batch size x testing_episode_max_time
+        :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
+        :return: None
+        :return: None
+        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write, both
+        """
+
         device = src.device
         batch_size = src.size()[0]
         src_seq_len = src.size()[1]
@@ -263,14 +271,14 @@ class RLST(nn.Module):
 
         token_probs = torch.zeros((batch_size, self.testing_episode_max_time, self.trg_vocab_len), device=device)
 
-        writing_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)
-        naughty_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)  # Want more input after input eos
-        after_eos_agents = torch.full((batch_size, 1), False, device=device, requires_grad=False)  # Already outputted EOS
+        writing_agents = torch.full((batch_size, 1), False, device=device)
+        naughty_agents = torch.full((batch_size, 1), False, device=device)  # Want more input after input eos
+        after_eos_agents = torch.full((batch_size, 1), False, device=device)  # Already outputted EOS
 
-        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # input indices
-        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device, requires_grad=False)  # output indices
+        i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
+        j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
         t = 0  # time
-        actions_count = torch.zeros(3, dtype=torch.long, device=device, requires_grad=False)
+        actions_count = torch.zeros(2, dtype=torch.long, device=device)
 
         while True:
             input = torch.gather(src, 1, i)
