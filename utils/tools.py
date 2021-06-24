@@ -59,7 +59,7 @@ def epoch_time(start_time: float, end_time: float):
 
 def actions_ratio(actions):
     s = sum(actions)
-    a = [actions[0]/s, actions[1]/s, actions[2]/s]
+    a = [actions[0]/s, actions[1]/s]
     return [round(action, 2) for action in a]
 
 
