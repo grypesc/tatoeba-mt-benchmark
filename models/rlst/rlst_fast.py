@@ -210,7 +210,7 @@ class RLST(nn.Module):
             random_action = torch.randint(low=0, high=2, size=(batch_size, 1), device=device)
             action[random_action_agents] = random_action[random_action_agents]
 
-            Q_used[:, t] = torch.gather(output[:, 0, -2:], 1, action.T).squeeze_(0)
+            Q_used[:, t] = torch.gather(output[:, 0, -2:], 1, action).squeeze_(1)
             Q_used[terminated_agents.squeeze(1), t] = 0
 
             with torch.no_grad():
