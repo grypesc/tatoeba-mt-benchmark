@@ -145,6 +145,8 @@ class RLST(nn.Module):
     This class implements RLST algorithm presented in the paper. Given batch size of n, it creates n partially observable
     training or testing environments in which n interpreter agents operate in order to transform source sequences into the target ones.
     At time t each agent can be at different indices in input and output sequences, this indices are vectors i and j.
+    At t=0 each agent is fed with first source token. If one decides to read, next token will be read in next t (t=1).
+    Agent goes naughty if he decides to read after he has already read source EOS token.
     """
 
     def __init__(self, approximator, testing_episode_max_time, trg_vocab_len, discount, m,
@@ -195,14 +197,13 @@ class RLST(nn.Module):
 
         i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
         j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
-        t = 0  # time
         actions_count = torch.zeros(2, dtype=torch.long, device=device)
 
         input = torch.gather(src, 1, i)
         output, rnn_state = self.approximator(input, word_output, rnn_state)
         action = torch.max(output[:, :, -2:], 2)[1]
 
-        while True:
+        for t in range(src_seq_len + trg_seq_len - 1):
             _, word_output = torch.max(output[:, :, :-2], dim=2)
             random_action_agents = torch.rand((batch_size, 1), device=device) < epsilon
             random_action = torch.randint(low=0, high=2, size=(batch_size, 1), device=device)
@@ -248,9 +249,10 @@ class RLST(nn.Module):
                 Q_target[just_terminated_agents.squeeze(1), t] = reward[just_terminated_agents.squeeze(1)]
                 Q_target[naughty_agents.squeeze(1), t] -= self.M
 
-                if terminated_agents.all() or t >= src_seq_len + trg_seq_len - 2:
-                    return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=1)
-            t += 1
+                if torch.all(terminated_agents):
+                    break
+
+        return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=1)
 
     def _testing_episode(self, src):
         """
@@ -275,10 +277,9 @@ class RLST(nn.Module):
 
         i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
         j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
-        t = 0  # time
         actions_count = torch.zeros(2, dtype=torch.long, device=device)
 
-        while True:
+        for t in range(self.testing_episode_max_time):
             input = torch.gather(src, 1, i)
             input[writing_agents] = self.SRC_NULL
             input[naughty_agents] = self.SRC_EOS
@@ -302,8 +303,7 @@ class RLST(nn.Module):
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = self.TRG_NULL
 
-            if t >= self.testing_episode_max_time - 1:
-                return token_probs, None, None, actions_count.unsqueeze_(dim=1)
-            t += 1
+        return token_probs, None, None, actions_count.unsqueeze_(dim=1)
+
 
 
