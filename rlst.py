@@ -10,7 +10,7 @@ import torch.optim as optim
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
 from criterions.rlst_criterion import RLSTCriterion
-from models.rlst.rlst_fast import RLST, LeakyResidualApproximator, LeakyResidualNormApproximator
+from models.rlst.rlst import RLST, LeakyResidualApproximator, LeakyResidualNormApproximator
 
 torch.set_printoptions(threshold=10_000)
 random.seed(20)
@@ -22,7 +22,7 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     rlst_criterion.train()
     epoch_mistranslation_loss = 0
     epoch_policy_loss = 0
-    policy_multiplier = None
+    eta = None
     total_actions = torch.zeros((2, 1), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
         src, trg = src.T.to(device), trg.T.to(device)
@@ -32,13 +32,13 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.reshape(-1)
 
-        loss, mistranslation_loss, policy_loss, policy_multiplier = rlst_criterion(word_outputs, trg, Q_used, Q_target)
+        loss, mistranslation_loss, policy_loss, eta = rlst_criterion(word_outputs, trg, Q_used, Q_target)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
         epoch_mistranslation_loss += mistranslation_loss.item()
         epoch_policy_loss += policy_loss.item()
-    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist(), policy_multiplier
+    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist(), eta
 
 
 def evaluate_epoch(loader, bleu_scorer):
@@ -152,7 +152,7 @@ if __name__ == '__main__':
     if not args.test:
         for epoch in range(args.epochs):
             start_time = time.time()
-            train_loss, policy_loss, train_actions, last_policy_multiplier = train_epoch(optimizer, args.epsilon, args.teacher_forcing, args.clip)
+            train_loss, policy_loss, train_actions, last_eta = train_epoch(optimizer, args.epsilon, args.teacher_forcing, args.clip)
             val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
 
             save_model(net, args.checkpoint_dir, "rlst", val_bleu > best_val_bleu)
@@ -163,7 +163,7 @@ if __name__ == '__main__':
 
             print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
             print('Train loss: {}, PPL: {}, policy loss: {}, eta: {}, epsilon: {}, action ratio: {}'
-                  .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_policy_multiplier, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
+                  .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_eta, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
             print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
 
     else:
