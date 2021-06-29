@@ -8,16 +8,15 @@ class LabelSmoothedCrossEntropy(torch.nn.Module):
         self.label_smoothing = label_smoothing
         self.ignore_index = ignore_index
 
-    @staticmethod
-    def label_smoothed_nll_loss(lprobs, target, label_smoothing, ignore_index=None, reduce=True):
+    def label_smoothed_nll_loss(self, lprobs, target, label_smoothing, reduce=True):
         """Taken from fairseq and added pad_indices_count as we have to calculate mean loss and therefore ignore pad indices"""
         if target.dim() == lprobs.dim() - 1:
             target = target.unsqueeze(-1)
         nll_loss = -lprobs.gather(dim=-1, index=target)
         smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
         pad_count = 0
-        if ignore_index is not None:
-            pad_mask = target.eq(ignore_index)
+        if self.ignore_index is not None:
+            pad_mask = target.eq(self.ignore_index)
             pad_count = pad_mask.sum()
             nll_loss.masked_fill_(pad_mask, 0.0)
             smooth_loss.masked_fill_(pad_mask, 0.0)
@@ -34,7 +33,7 @@ class LabelSmoothedCrossEntropy(torch.nn.Module):
 
     def forward(self, net_output, target, reduce):
         lprobs = torch.nn.functional.log_softmax(net_output, dim=-1)
-        loss, nll_loss = self.label_smoothed_nll_loss(lprobs, target, self.label_smoothing, ignore_index=self.ignore_index, reduce=reduce)
+        loss, nll_loss = self.label_smoothed_nll_loss(lprobs, target, self.label_smoothing, reduce=reduce)
         return loss
 
 
