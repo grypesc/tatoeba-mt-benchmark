@@ -150,7 +150,8 @@ class RLST(nn.Module):
     """
 
     def __init__(self, approximator, testing_episode_max_time, trg_vocab_len, discount, m,
-                 src_eos_index, src_null_index, trg_eos_index, trg_null_index):
+                 src_eos_index, src_null_index, trg_eos_index, trg_null_index,
+                 mistranslation_loss):
         super().__init__()
         self.approximator = approximator
         self.testing_episode_max_time = testing_episode_max_time
@@ -163,7 +164,7 @@ class RLST(nn.Module):
         self.TRG_EOS = trg_eos_index
         self.TRG_NULL = trg_null_index
 
-        self.mistranslation_loss_per_token = nn.CrossEntropyLoss(reduction='none')
+        self.mistranslation_loss = mistranslation_loss
 
     def forward(self, src, trg=None, epsilon=0, teacher_forcing=0):
         if self.training:
@@ -230,7 +231,7 @@ class RLST(nn.Module):
                     word_output = torch.gather(trg, 1, old_j)
                 word_output[reading_agents] = self.TRG_NULL
 
-                reward = (-1) * self.mistranslation_loss_per_token(output[:, 0, :-2], torch.gather(trg, 1, old_j)[:, 0])
+                reward = (-1) * self.mistranslation_loss(output[:, 0, :-2], torch.gather(trg, 1, old_j)[:, 0], reduce=False)
 
             token_probs[writing_agents.squeeze(1), old_j[writing_agents], :] = output[writing_agents.squeeze(1), 0, :-2]
 

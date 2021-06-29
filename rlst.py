@@ -9,7 +9,7 @@ import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
 from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
-from criterions.rlst_criterion import RLSTCriterion
+from criterions.rlst_criterion import RLSTCriterion, RLSTCriterionLabelSmoothed
 from models.rlst.rlst import RLST, LeakyResidualApproximator, LeakyResidualNormApproximator
 
 torch.set_printoptions(threshold=10_000)
@@ -113,6 +113,10 @@ def parse_args():
                         help='rho for moving exponential average of losses weights',
                         type=float,
                         default=0.99)
+    parser.add_argument('--smoothing',
+                        help='label smoothing for cross entropy',
+                        type=float,
+                        default=0.0)
     return parser.parse_args()
 
 
@@ -133,14 +137,15 @@ if __name__ == '__main__':
                                     args.src_embed_dim, args.trg_embed_dim, args.embed_dropout).to(device)
     if args.load_model_name:
         net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
+    rlst_criterion = RLSTCriterionLabelSmoothed(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max, label_smoothing=args.smoothing)
     model = RLST(net, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
                  src_vocab.stoi['<eos>'],
                  src_vocab.stoi['<null>'],
                  trg_vocab.stoi['<eos>'],
-                 trg_vocab.stoi['<null>'])
+                 trg_vocab.stoi['<null>'],
+                 rlst_criterion.mistranslation_criterion)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    rlst_criterion = RLSTCriterion(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max)
 
     print(vars(args))
     print(f'The model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters\n')
