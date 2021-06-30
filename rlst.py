@@ -27,7 +27,7 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     for iteration, (src, trg) in enumerate(train_loader, 1):
         src, trg = src.T.to(device), trg.T.to(device)
         word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
-        total_actions += actions.cumsum(dim=0)
+        total_actions += actions.sum(dim=0)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.reshape(-1)
@@ -50,7 +50,7 @@ def evaluate_epoch(loader, bleu_scorer):
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.T.to(device), trg.T.to(device)
             word_outputs, _, _, actions = model(src)
-            total_actions += actions.cumsum(dim=0)
+            total_actions += actions.sum(dim=0)
             bleu_scorer.register_minibatch(word_outputs.permute(1, 0, 2), trg.T)
             word_outputs_clipped = word_outputs[:, :trg.size()[1], :]
             word_outputs_clipped = word_outputs_clipped.reshape(-1, word_outputs_clipped.shape[-1])
