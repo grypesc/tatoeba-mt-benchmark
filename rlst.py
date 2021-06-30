@@ -23,11 +23,11 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     epoch_mistranslation_loss = 0
     epoch_policy_loss = 0
     eta = None
-    total_actions = torch.zeros((2, 1), dtype=torch.long, device=device)
+    total_actions = torch.zeros((1, 2), dtype=torch.long, device=device)
     for iteration, (src, trg) in enumerate(train_loader, 1):
         src, trg = src.T.to(device), trg.T.to(device)
         word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
-        total_actions += actions.cumsum(dim=1)
+        total_actions += actions.cumsum(dim=0)
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.reshape(-1)
@@ -38,26 +38,26 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
         optimizer.step()
         epoch_mistranslation_loss += mistranslation_loss.item()
         epoch_policy_loss += policy_loss.item()
-    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(1).tolist(), eta
+    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(0).tolist(), eta
 
 
 def evaluate_epoch(loader, bleu_scorer):
     model.eval()
     rlst_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
-    total_actions = torch.zeros((2, 1), dtype=torch.long, device=device)
+    total_actions = torch.zeros((1, 2), dtype=torch.long, device=device)
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.T.to(device), trg.T.to(device)
             word_outputs, _, _, actions = model(src)
-            total_actions += actions.cumsum(dim=1)
+            total_actions += actions.cumsum(dim=0)
             bleu_scorer.register_minibatch(word_outputs.permute(1, 0, 2), trg.T)
             word_outputs_clipped = word_outputs[:, :trg.size()[1], :]
             word_outputs_clipped = word_outputs_clipped.reshape(-1, word_outputs_clipped.shape[-1])
             trg = trg.reshape(-1)
             _, _mistranslation_loss, _, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0)
             epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(1).tolist()
+    return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(0).tolist()
 
 
 def parse_args():
@@ -138,12 +138,12 @@ if __name__ == '__main__':
     if args.load_model_name:
         net.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.load_model_name)))
     rlst_criterion = RLSTCriterionLabelSmoothed(args.rho, trg_vocab.stoi['<pad>'], args.N, args.eta_min, args.eta_max, label_smoothing=args.smoothing)
-    model = RLST(net, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
+    model = torch.nn.DataParallel(RLST(net, args.testing_episode_max_time, len(trg_vocab), args.discount, args.M,
                  src_vocab.stoi['<eos>'],
                  src_vocab.stoi['<null>'],
                  trg_vocab.stoi['<eos>'],
                  trg_vocab.stoi['<null>'],
-                 rlst_criterion.mistranslation_criterion)
+                 rlst_criterion.mistranslation_criterion))
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 

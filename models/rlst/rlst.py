@@ -251,9 +251,9 @@ class RLST(nn.Module):
                 Q_target[naughty_agents.squeeze(1), t] -= self.M
 
                 if torch.all(terminated_agents):
-                    return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=1)
+                    return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=0)
 
-        return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=1)
+        return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=0)
 
     def _testing_episode(self, src):
         """
@@ -304,7 +304,7 @@ class RLST(nn.Module):
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = self.TRG_NULL
 
-        return token_probs, None, None, actions_count.unsqueeze_(dim=1)
+        return token_probs, None, None, actions_count.unsqueeze_(dim=0)
 
 
 
