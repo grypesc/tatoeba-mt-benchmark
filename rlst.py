@@ -8,7 +8,7 @@ import torch
 import torch.optim as optim
 
 from utils.data_pipeline import DataPipeline
-from utils.tools import epoch_time, actions_ratio, save_model, BleuScorer, parse_utils
+from utils.tools import epoch_time, save_model, BleuScorer, parse_utils
 from criterions.rlst_criterion import RLSTCriterion, RLSTCriterionLabelSmoothed
 from models.rlst.rlst import RLST, LeakyResidualApproximator, LeakyResidualNormApproximator
 
@@ -23,11 +23,12 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
     epoch_mistranslation_loss = 0
     epoch_policy_loss = 0
     eta = None
-    total_actions = torch.zeros((1, 2), dtype=torch.long, device=device)
+    total_actions, total_reads = 0, 0
     for iteration, (src, trg) in enumerate(train_loader, 1):
         src, trg = src.T.to(device), trg.T.to(device)
-        word_outputs, Q_used, Q_target, actions = model(src, trg, epsilon, teacher_forcing)
-        total_actions += actions.sum(dim=0)
+        word_outputs, Q_used, Q_target, is_read, is_write = model(src, trg, epsilon, teacher_forcing)
+        total_actions += (is_read + is_write).sum()
+        total_reads += is_read.sum()
         optimizer.zero_grad()
         word_outputs = word_outputs.view(-1, word_outputs.shape[-1])
         trg = trg.reshape(-1)
@@ -38,26 +39,27 @@ def train_epoch(optimizer, epsilon, teacher_forcing, clip):
         optimizer.step()
         epoch_mistranslation_loss += mistranslation_loss.item()
         epoch_policy_loss += policy_loss.item()
-    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), total_actions.squeeze(0).tolist(), eta
+    return epoch_mistranslation_loss / len(train_loader), epoch_policy_loss / len(train_loader), float(total_reads / total_actions), eta
 
 
 def evaluate_epoch(loader, bleu_scorer):
     model.eval()
     rlst_criterion.eval()
     epoch_loss, epoch_bleu = 0, 0
-    total_actions = torch.zeros((1, 2), dtype=torch.long, device=device)
+    total_actions, total_reads = 0, 0
     with torch.no_grad():
         for iteration, (src, trg) in enumerate(loader):
             src, trg = src.T.to(device), trg.T.to(device)
-            word_outputs, _, _, actions = model(src)
-            total_actions += actions.sum(dim=0)
+            word_outputs, _, _, is_read, is_write = model(src)
+            total_actions += (is_read + is_write).sum()
+            total_reads += is_read.sum()
             bleu_scorer.register_minibatch(word_outputs.permute(1, 0, 2), trg.T)
             word_outputs_clipped = word_outputs[:, :trg.size()[1], :]
             word_outputs_clipped = word_outputs_clipped.reshape(-1, word_outputs_clipped.shape[-1])
             trg = trg.reshape(-1)
             _, _mistranslation_loss, _, _ = rlst_criterion(word_outputs_clipped, trg, 0, 0)
             epoch_loss += _mistranslation_loss.item()
-    return epoch_loss / len(loader), bleu_scorer.epoch_score(), total_actions.squeeze(0).tolist()
+    return epoch_loss / len(loader), bleu_scorer.epoch_score(), float(total_reads / total_actions)
 
 
 def parse_args():
@@ -157,8 +159,8 @@ if __name__ == '__main__':
     if not args.test:
         for epoch in range(args.epochs):
             start_time = time.time()
-            train_loss, policy_loss, train_actions, last_eta = train_epoch(optimizer, args.epsilon, args.teacher_forcing, args.clip)
-            val_loss, val_bleu, val_actions = evaluate_epoch(valid_loader, bleu_scorer)
+            train_loss, policy_loss, read_ratio, last_eta = train_epoch(optimizer, args.epsilon, args.teacher_forcing, args.clip)
+            val_loss, val_bleu, val_read_ratio = evaluate_epoch(valid_loader, bleu_scorer)
 
             save_model(net, args.checkpoint_dir, "rlst", val_bleu > best_val_bleu)
             best_val_bleu = val_bleu if val_bleu > best_val_bleu else best_val_bleu
@@ -167,13 +169,13 @@ if __name__ == '__main__':
             epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
             print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-            print('Train loss: {}, PPL: {}, policy loss: {}, eta: {}, epsilon: {}, action ratio: {}'
-                  .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_eta, 2), round(args.epsilon, 2), actions_ratio(train_actions)))
-            print('Valid loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), actions_ratio(val_actions)))
+            print('Train loss: {}, PPL: {}, policy loss: {}, eta: {}, epsilon: {}, read_rf: {}'
+                  .format(round(train_loss, 3), round(math.exp(train_loss), 3), round(policy_loss, 3), round(last_eta, 2), round(args.epsilon, 2), round(read_ratio, 2)))
+            print('Valid loss: {}, PPL: {}, BLEU: {}, read_rf: {}\n'.format(round(val_loss, 3), round(math.exp(val_loss), 3), round(100*val_bleu, 2), round(val_read_ratio, 2)))
 
     else:
-        test_loss, test_bleu, test_actions = evaluate_epoch(test_loader, bleu_scorer)
-        print('Test loss: {}, PPL: {}, BLEU: {}, action ratio: {}'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
-        test_loss, test_bleu, test_actions = evaluate_epoch(data.long_test_loader, bleu_scorer)
-        print('Test-long loss: {}, PPL: {}, BLEU: {}, action ratio: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), actions_ratio(test_actions)))
+        test_loss, test_bleu, read_ratio = evaluate_epoch(test_loader, bleu_scorer)
+        print('Test loss: {}, PPL: {}, BLEU: {}, read_rf: {}'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), round(read_ratio, 2)))
+        test_loss, test_bleu, read_ratio = evaluate_epoch(data.long_test_loader, bleu_scorer)
+        print('Test-long loss: {}, PPL: {}, BLEU: {}, read_rf: {}\n'.format(round(test_loss, 5), round(math.exp(test_loss), 3), round(100*test_bleu, 2), round(read_ratio, 2)))
 

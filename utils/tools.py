@@ -57,12 +57,6 @@ def epoch_time(start_time: float, end_time: float):
     return elapsed_mins, elapsed_secs
 
 
-def actions_ratio(actions):
-    s = sum(actions)
-    a = [actions[0]/s, actions[1]/s]
-    return [round(action, 2) for action in a]
-
-
 def save_model(model, path, model_name, is_best):
     Path(path).mkdir(parents=True, exist_ok=True)
     if is_best:

@@ -145,8 +145,8 @@ class RLST(nn.Module):
     This class implements RLST algorithm presented in the paper. Given batch size of n, it creates n partially observable
     training or testing environments in which n interpreter agents operate in order to transform source sequences into the target ones.
     At time t each agent can be at different indices in input and output sequences, this indices are vectors i and j.
-    At t=0 each agent is fed with first source token. If one decides to read, next token will be read in next t (t=1).
-    Agent goes naughty if he decides to read after he has already read source EOS token.
+    At t=0 each agent is fed with first source token. Then in a time loop it performs actions based on its observations
+    and approximator state until all agents are terminated or the time is up.
     """
 
     def __init__(self, approximator, testing_episode_max_time, trg_vocab_len, discount, m,
@@ -180,7 +180,8 @@ class RLST(nn.Module):
         :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
         :return: Q_used: Tensor of shape batch size x time . Containes Q values of actions taken by agents
         :return: Q_target: Tensor of shape batch size x time. Containes best Q values in next time step w.r.t Q_used
-        :return: actions_count: Tensor of shape 3. Contains number of actions taken by agents: read, write
+        :return: logging_is_read: Bool tensor of shape batch size x time. Data about taken read actions
+        :return: logging_is_write: Bool tensor of shape batch size x time. Data about taken write actions
         """
 
         device = src.device
@@ -198,11 +199,13 @@ class RLST(nn.Module):
 
         i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
         j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
-        actions_count = torch.zeros(2, dtype=torch.long, device=device)
 
         input = torch.gather(src, 1, i)
         output, rnn_state = self.approximator(input, word_output, rnn_state)
         action = torch.max(output[:, :, -2:], 2)[1]
+
+        logging_is_read = torch.full((batch_size, src_seq_len + trg_seq_len - 1), False, dtype=torch.bool, device=device)
+        logging_is_write = torch.full((batch_size, src_seq_len + trg_seq_len - 1), False, dtype=torch.bool, device=device)
 
         for t in range(src_seq_len + trg_seq_len - 1):
             _, word_output = torch.max(output[:, :, :-2], dim=2)
@@ -217,8 +220,8 @@ class RLST(nn.Module):
                 reading_agents = ~terminated_agents * (action == 0)
                 writing_agents = ~terminated_agents * (action == 1)
 
-                actions_count[0] += reading_agents.sum()
-                actions_count[1] += writing_agents.sum()
+                logging_is_read[:, t] = reading_agents.squeeze(1)
+                logging_is_write[:, t] = writing_agents.squeeze(1)
 
                 just_terminated_agents = writing_agents * (torch.gather(trg, 1, j) == self.TRG_EOS)
                 naughty_agents = reading_agents * (torch.gather(src, 1, i) == self.SRC_EOS)
@@ -251,9 +254,9 @@ class RLST(nn.Module):
                 Q_target[naughty_agents.squeeze(1), t] -= self.M
 
                 if torch.all(terminated_agents):
-                    return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=0)
+                    return token_probs, Q_used, Q_target.detach_(), logging_is_read, logging_is_write
 
-        return token_probs, Q_used, Q_target.detach_(), actions_count.unsqueeze_(dim=0)
+        return token_probs, Q_used, Q_target.detach_(), logging_is_read, logging_is_write
 
     def _testing_episode(self, src):
         """
@@ -261,7 +264,8 @@ class RLST(nn.Module):
         :return: token_probs: Tensor of shape batch size x trg seq len x number of features e.g. target vocab length
         :return: None
         :return: None
-        :return: actions_count: Tensor of shape 2. Contains number of actions taken by agents: read, write
+        :return: logging_is_read: Bool tensor of shape batch size x time. Data about taken read actions
+        :return: logging_is_write: Bool tensor of shape batch size x time. Data about taken write actions
         """
 
         device = src.device
@@ -278,7 +282,9 @@ class RLST(nn.Module):
 
         i = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # input indices
         j = torch.zeros(size=(batch_size, 1), dtype=torch.long, device=device)  # output indices
-        actions_count = torch.zeros(2, dtype=torch.long, device=device)
+
+        logging_is_read = torch.full((batch_size, self.testing_episode_max_time), False, dtype=torch.bool, device=device)
+        logging_is_write = torch.full((batch_size, self.testing_episode_max_time), False, dtype=torch.bool, device=device)
 
         for t in range(self.testing_episode_max_time):
             input = torch.gather(src, 1, i)
@@ -291,8 +297,8 @@ class RLST(nn.Module):
             reading_agents = (action == 0)
             writing_agents = (action == 1)
 
-            actions_count[0] += (~after_eos_agents * reading_agents).sum()
-            actions_count[1] += (~after_eos_agents * writing_agents).sum()
+            logging_is_read[:, t] = (~after_eos_agents * reading_agents).squeeze_(1)
+            logging_is_write[:, t] = (~after_eos_agents * writing_agents).squeeze_(1)
 
             token_probs[writing_agents.squeeze(1), j[writing_agents], :] = output[writing_agents.squeeze(1), 0, :-2]
 
@@ -304,7 +310,7 @@ class RLST(nn.Module):
             i[i >= src_seq_len] = src_seq_len - 1
             word_output[reading_agents] = self.TRG_NULL
 
-        return token_probs, None, None, actions_count.unsqueeze_(dim=0)
+        return token_probs, None, None, logging_is_read, logging_is_write
 
 
 
